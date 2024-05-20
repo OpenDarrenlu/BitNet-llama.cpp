@@ -2001,8 +2001,28 @@ inline static void ggml_vec_argmax_f32(const int n, int * s, const float * x) {
     *s = idx;
 }
 
-inline static void ggml_vec_dot_q8_0_i2(int64_t n, float * restrict s, const float * x, uint8_t* w) {
-    
+inline static void ggml_vec_dot_q8_0_i2(int64_t n, float * restrict s, const void * vx, uint8_t* vy) {
+    const int qk = QK8_0;
+    const int nb = n / qk;
+
+    const block_q8_0 * restrict x = vx;
+    const uint8_t * restrict y = vy;
+
+    float sumf = 0.0;
+
+    for (int i = 0; i < nb; i++) {
+        int sumi = 0;
+
+        for (int j = 0; j < qk; j++) {
+            int shift = j % 4;
+            int index = i + j / 4;
+            sumi += x[i].qs[j] * ((y[index] >> (6 - 2 * shift)) & 3);
+        }
+
+        sumf += sumi*(GGML_FP16_TO_FP32(x[i].d));
+    }
+
+    *s = sumf;
 }
 
 inline static void ggml_vec_dot_i2_f32(int64_t n, float * restrict s, const float * x, uint8_t* w, float scale) {
@@ -11121,7 +11141,7 @@ static void ggml_compute_forward_bitnet_mul_mat(
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
 
-    auto vec_dot_type = GGML_TYPE_Q8_0;
+    int vec_dot_type = GGML_TYPE_Q8_0;
 
     if (params->type == GGML_TASK_TYPE_INIT) {
         if (ith != 0) {
