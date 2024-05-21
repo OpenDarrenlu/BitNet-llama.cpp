@@ -11141,14 +11141,14 @@ static void ggml_compute_forward_bitnet_mul_mat(
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
 
-    int vec_dot_type = GGML_TYPE_Q8_0;
+    int vec_dot_type = GGML_TYPE_Q8_K;
 
     if (params->type == GGML_TASK_TYPE_INIT) {
         if (ith != 0) {
             return;
         }
         char * wdata = params->wdata;
-        const size_t row_size = ggml_row_size(GGML_TYPE_Q8_0, ne10);
+        const size_t row_size = ggml_row_size(GGML_TYPE_Q8_K, ne10);
 
         assert(params->wsize >= ne11*ne12*ne13*row_size);
         GGML_ASSERT(src1->type == GGML_TYPE_F32);
@@ -11156,7 +11156,7 @@ static void ggml_compute_forward_bitnet_mul_mat(
         for (int64_t i13 = 0; i13 < ne13; ++i13) {
             for (int64_t i12 = 0; i12 < ne12; ++i12) {
                 for (int64_t i11 = 0; i11 < ne11; ++i11) {
-                    quantize_row_q8_0((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    quantize_row_q8_K((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
                         wdata += row_size;
                 }
             }
@@ -11187,7 +11187,7 @@ static void ggml_compute_forward_bitnet_mul_mat(
                 float * dst_col = (float *) ((char *) dst->data + (i01 + i02*ne02 + i03*ne03) * nb0);
                 float * inp_row = (const char *) wdata;
                 uint8_t * weight_col = (uint8_t *) ((char *) src0->data + (i01*ne00 + i02*ne02 + i03*ne03) / 4);
-                ggml_vec_dot_q8_0_i2(ne00, dst_col, inp_row, weight_col);
+                ggml_vec_dot_i2_q8_K(ne00, dst_col, 1, inp_row, 1, weight_col, 1, 1);
                 // ggml_vec_dot_i2_f32(ne00, dst_col, inp_row, weight_col, scale);
             }
         }

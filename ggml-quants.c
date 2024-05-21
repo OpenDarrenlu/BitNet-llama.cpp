@@ -11562,7 +11562,8 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
 
 
     int * idx = (int *)(pairs + 1);
-
+    printf("QK_K:%d\n", QK_K);
+    printf("nbl:%d\n", nbl);
     for (int ibl = 0; ibl < nbl; ++ibl) {
 
         y[ibl].d = GGML_FP32_TO_FP16(0.f);
