@@ -10219,7 +10219,10 @@ void iq2xs_init_impl(enum ggml_type type) {
         41280, 41317, 41474, 41482, 41506, 41512, 41514, 41602, 41608, 41610, 41640, 41985, 41988, 42000, 42048, 42121,
         42148, 42240, 42265, 42577, 43018, 43048, 43170, 43348, 43398, 43528, 43530, 43552, 43554, 43560, 43656, 43690,
     };
-
+    // 0 -> 43691
+    // 2^15 + 2^13 + 2^11 + 2^9 + 2^7 + 2^5 + 2^3 + 2^1 + 1== 43691
+    // max value -> 101010...101010
+    // no 11 for 1.5bits
     const int kmap_size = 43692;
     //const int nwant = type == GGML_TYPE_IQ1_S ? 3 : 2;
     const int nwant = type == GGML_TYPE_IQ1_S || type == GGML_TYPE_IQ1_M ? 3 : type == GGML_TYPE_IQ2_S ? 1 : 2;
@@ -10233,12 +10236,24 @@ void iq2xs_init_impl(enum ggml_type type) {
     //printf("================================================================= %s(grid_size = %d)\n", __func__, grid_size);
     uint64_t * the_grid = (uint64_t *)malloc(grid_size*sizeof(uint64_t));
     for (int k = 0; k < grid_size; ++k) {
+        // each k represent 64bits split into 8 pos each 8bits
         int8_t * pos = (int8_t *)(the_grid + k);
         for (int i = 0; i < 8; ++i) {
             int l = (kgrid[k] >> 2*i) & 0x3;
+            // kgrid[k] has 16bits
+            // get 2bits onetime from kgrid
+            // left move ibit and plus 1
             pos[i] = 2*l + 1;
+            // 00 -> 00000001
+            // 01 -> 00000011
+            // 10 -> 00000101
+            // 11 -> 00000111
         }
     }
+    // kgrid_1bit_2048 (uint16_t 2048)
+    // |
+    // v
+    // kgrid_q2xs (uint64_t 2048)
     kgrid_q2xs = the_grid;
     iq2_data[gindex].grid = the_grid;
     kmap_q2xs = (int *)malloc(kmap_size*sizeof(int));
@@ -10247,32 +10262,63 @@ void iq2xs_init_impl(enum ggml_type type) {
     uint64_t aux64;
     uint8_t * aux8 = (uint8_t *)&aux64;
     for (int i = 0; i < grid_size; ++i) {
+        // each i has 64bits which contains
+        // 8pos each 8bits
         aux64 = kgrid_q2xs[i];
         uint16_t index = 0;
         for (int k=0; k<8; ++k) {
             uint16_t q = (aux8[k] - 1)/2;
+            // aux8 (single weight)
+            // q -> single weight
+            // aux8     -> q
+            // 00000001 -> 00000000
+            // 00000011 -> 00000001
+            // 00000101 -> 00000010
+            // 00000111 -> 00000011
             index |= (q << 2*k);
+            // index (uint16_t)
+            // 16bits contains 8 weight each 2bits
+            // example
+            // 0x0001 0x0002 0x0000 0x0002 0x0003 0x0001 0x0000 0x0002 (8weight eache 16bits)
+            // 1000011110001001 -> index
         }
         kmap_q2xs[index] = i;
+        // index -> i (grid index)
     }
+    // grid -> some pre-defined sequence for each 2bits group of 8
+    // map  -> use grid to generate index for map to indexing to grid (-1 if sequence not in grid)
     int8_t pos[8];
     int * dist2 = (int *)malloc(2*grid_size*sizeof(int));
     int num_neighbors = 0, num_not_in_map = 0;
     for (int i = 0; i < kmap_size; ++i) {
         if (kmap_q2xs[i] >= 0) continue;
         ++num_not_in_map;
+        // index not in map for grid
         for (int k = 0; k < 8; ++k) {
+            // put index to pos
             int l = (i >> 2*k) & 0x3;
             pos[k] = 2*l + 1;
+            // example
+            // i = 52 -> 00110110
+            // pos -> 
+            // 0x05 0x03 0x07 0x01 0x01 0x01 0x01 0x01 
+            // 10 -> 0x05
+            // 01 -> 0x03
+            // 00 -> 0x01
         }
         for (int j = 0; j < grid_size; ++j) {
             const int8_t * pg = (const int8_t *)(kgrid_q2xs + j);
             int d2 = 0;
+            // iterate all grid and compute d2
+            // d2 is uint8_t sub sum each group (uint64_t)
             for (int k = 0; k < 8; ++k) d2 += (pg[k] - pos[k])*(pg[k] - pos[k]);
             dist2[2*j+0] = d2;
             dist2[2*j+1] = j;
+            // dist[2*j+0] -> d2
+            // dist[2*j+1] -> j
         }
         qsort(dist2, grid_size, 2*sizeof(int), iq2_compare_func);
+        // 
         int n = 0; int d2 = dist2[0];
         int nhave = 1;
         for (int j = 0; j < grid_size; ++j) {
@@ -11633,12 +11679,16 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                 for (int j = 0; j < block_size; ++j) L[j] = 2 - L[j];
                 scale = -scale; best_shift = -best_shift;
             }
+            // get L contains 0 1 2 (-1 0 1)
             bool all_on_grid = true;
             const float * xx = best_shift == 1 ? x_p : x_m;
             for (int k = 0; k < block_size/8; ++k) {
                 uint16_t u = 0;
                 for (int j = 0; j < 8; ++j) u |= (L[8*k+j] << 2*j);
+                // L (int8) -> u (uint16)
+                // L for 2 bits / u for 8 L which is 16 bits
                 int grid_index = kmap_q2xs[u];
+                // get grid index 
                 if (grid_index < 0) {
                     all_on_grid = false;
                     const uint16_t * neighbours = kneighbors_q2xs - kmap_q2xs[u] - 1;
@@ -11647,6 +11697,8 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                 }
                 index[k] = grid_index;
             }
+            // get grid index (uint16)
+            // each grid index contains 8->2bits
             if (!all_on_grid) {
                 float sumqx = 0, sumq2 = 0;
                 for (int k = 0; k < block_size/8; ++k) {
@@ -11663,7 +11715,18 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
             uint16_t h = 0;
             for (int k = 0; k < block_size/8; ++k) {
                 y[ibl].qs[(block_size/8)*ib + k] = index[k] & 255;
-                h |= (index[k] >> 8) << 3*k;
+                // for each grid_index (uint16_t) which contains 8 weight
+                // qs only need last 8 bits
+                // 01001001 / 10010110
+                // 10010110 -> qs
+                h |= (index[k] >> 8) << 3*k; // add zero when >> 8
+                // k=0 -> >>8 <<0
+                // k=1 -> >>8 <<3
+                // k=2 -> >>8 <<6
+                // k=3 -> >>8 <<9
+                // for a 16 bit h ->
+                // x is all index 16bit or result
+                // xxxx / xxx / xxx / xxx / xxx
             }
             y[ibl].qh[ib] = h;
             GGML_ASSERT(scale >= 0);
