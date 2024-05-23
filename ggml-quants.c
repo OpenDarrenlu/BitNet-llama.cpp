@@ -9967,7 +9967,9 @@ static int iq2_compare_func(const void * left, const void * right) {
 
 void iq2xs_init_impl(enum ggml_type type) {
     const int gindex = iq2_data_index(type);
+    printf("gidx:%d\n", gindex);
     const int grid_size = iq2_grid_size(type);
+    printf("gsize:%d\n", grid_size);
     if (iq2_data[gindex].grid) {
         return;
     }
@@ -10233,13 +10235,22 @@ void iq2xs_init_impl(enum ggml_type type) {
     int      * kmap_q2xs;
     uint16_t * kneighbors_q2xs;
 
-    //printf("================================================================= %s(grid_size = %d)\n", __func__, grid_size);
+    // printf("================================================================= %s(grid_size = %d)\n", __func__, grid_size);
+    // 2048 * 64
     uint64_t * the_grid = (uint64_t *)malloc(grid_size*sizeof(uint64_t));
     for (int k = 0; k < grid_size; ++k) {
+<<<<<<< Updated upstream
         // each k represent 64bits split into 8 pos each 8bits
+=======
+        // printf("k:%d\n", k);
+>>>>>>> Stashed changes
         int8_t * pos = (int8_t *)(the_grid + k);
+        // printf("pos:%d\n", pos[0]);
+        // 8 pos in 64
+        // each pos 8bits
         for (int i = 0; i < 8; ++i) {
             int l = (kgrid[k] >> 2*i) & 0x3;
+<<<<<<< Updated upstream
             // kgrid[k] has 16bits
             // get 2bits onetime from kgrid
             // left move ibit and plus 1
@@ -10248,7 +10259,20 @@ void iq2xs_init_impl(enum ggml_type type) {
             // 01 -> 00000011
             // 10 -> 00000101
             // 11 -> 00000111
+=======
+            // get 2bits each time
+            // printf("l:%d\n", l);
+            pos[i] = 2*l + 1;
+            // put 2bits left 1 bit, put 1 in last bit
+            // printf("pos:%d\n", pos[i]);
+>>>>>>> Stashed changes
         }
+        // expand 2 bits in kgrid to 8 bits (uint16_t to uint64_t)
+        // by left move 1 bit and put 1 bit in the last
+        // 00 -> 00000001
+        // 01 -> 00000011
+        // 10 -> 00000101
+        // 11 -> 00000111
     }
     // kgrid_1bit_2048 (uint16_t 2048)
     // |
@@ -11586,7 +11610,7 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
         int8_t   * shifts) {
 
     const int gindex = iq2_data_index(GGML_TYPE_IQ1_S);
-
+    printf("gidx:%d\n", gindex);
     const uint64_t * kgrid_q2xs      = iq2_data[gindex].grid;
     const int      * kmap_q2xs       = iq2_data[gindex].map;
     const uint16_t * kneighbors_q2xs = iq2_data[gindex].neighbours;
@@ -11625,7 +11649,9 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
 
         for (int ib = 0; ib < QK_K/block_size; ++ib) {
             const float * xb = xbl + block_size*ib;
+            // printf("xb:%f\n", xb[ib]);
             const float * qw = quant_weights + QK_K*ibl + block_size*ib;
+            // printf("qw:%f\n", qw[ib]);
             for (int i = 0; i < block_size; ++i) weight[i] = qw[i] * sqrtf(sigma2 + xb[i]*xb[i]);
             float max = fabsf(xb[0]);
             for (int i = 1; i < block_size; ++i) max = MAX(max, fabsf(xb[i]));
@@ -11644,7 +11670,32 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                 pairs[2*j] = xb[j];
                 idx[2*j] = j;
             }
+
+            printf("pairs\n");
+            for (int i=0; i<block_size * 2; i++) {
+                printf("%f ", pairs[i]);
+            }
+            printf("\n");
+            printf("idx\n");
+            for (int i=0; i<block_size * 2; i++) {
+                printf("%d ", idx[i]);
+            }
+            printf("\n");
+
             qsort(pairs, block_size, 2*sizeof(float), iq1_sort_helper);
+            
+            printf("after sort\n");
+            printf("pairs\n");
+            for (int i=0; i<block_size * 2; i++) {
+                printf("%f ", pairs[i]);
+            }
+            printf("\n");
+            printf("idx\n");
+            for (int i=0; i<block_size * 2; i++) {
+                printf("%d ", idx[i]);
+            }
+            printf("\n");
+            
             {
                 sumx[0] = sumw[0] = 0;
                 for (int j = 0; j < block_size; ++j) {
@@ -11671,6 +11722,8 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                     }
                 }
             }
+            printf("besti1:%d\n", besti1);
+            printf("besti2:%d\n", besti2);
             GGML_ASSERT(besti1 >= 0 && besti2 >= 0 && best_shift != 0);
             for (int j =      0; j < besti1; ++j) L[idx[2*j]] = 0;
             for (int j = besti1; j < besti2; ++j) L[idx[2*j]] = 1;
@@ -11679,14 +11732,29 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                 for (int j = 0; j < block_size; ++j) L[j] = 2 - L[j];
                 scale = -scale; best_shift = -best_shift;
             }
+<<<<<<< Updated upstream
             // get L contains 0 1 2 (-1 0 1)
+=======
+            printf("scale:%f\n", scale);
+            printf("bestshift:%d\n", best_shift);
+            printf("L\n");
+            for (int i=0; i<block_size; i++) {
+                printf("%d ", L[i]);
+            }
+            printf("\n");
+>>>>>>> Stashed changes
             bool all_on_grid = true;
             const float * xx = best_shift == 1 ? x_p : x_m;
             for (int k = 0; k < block_size/8; ++k) {
                 uint16_t u = 0;
                 for (int j = 0; j < 8; ++j) u |= (L[8*k+j] << 2*j);
+<<<<<<< Updated upstream
                 // L (int8) -> u (uint16)
                 // L for 2 bits / u for 8 L which is 16 bits
+=======
+                // 1 1 1 1 0 0 0 1 -> 0101010100000001
+                printf("u:%u\n", u);
+>>>>>>> Stashed changes
                 int grid_index = kmap_q2xs[u];
                 // get grid index 
                 if (grid_index < 0) {
@@ -11697,8 +11765,16 @@ static void quantize_row_iq1_s_impl(const float * restrict x, void * restrict vy
                 }
                 index[k] = grid_index;
             }
+<<<<<<< Updated upstream
             // get grid index (uint16)
             // each grid index contains 8->2bits
+=======
+            printf("idx\n");
+            for (int i=0; i<block_size / 8; i++) {
+                printf("%d ", index[i]);
+            }
+            printf("\n");
+>>>>>>> Stashed changes
             if (!all_on_grid) {
                 float sumqx = 0, sumq2 = 0;
                 for (int k = 0; k < block_size/8; ++k) {

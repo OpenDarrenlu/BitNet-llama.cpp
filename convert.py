@@ -731,13 +731,14 @@ def transform_to_i2(x : NDArray):
             scale = x[i]
             break
     x = np.divide(x, scale)
+    x = x + 1
     x = x.astype(np.uint8)
     x = np.reshape(x, [x.shape[0] // 4, 4])
-    keep_bit = {0:192, 1:48, 2:12, 3:3}
+    keep_bit = {0:3, 1:12, 2:48, 3:192}
     ans = np.zeros([x_num // 4], dtype=np.uint8)
     for i in range(4):
         x_bit_col = x[:, i]
-        x_bit_shift = np.left_shift(x_bit_col, 6 - i * 2)
+        x_bit_shift = np.left_shift(x_bit_col, i * 2)
         x_bit_shift = np.bitwise_and(x_bit_shift, keep_bit[i])
         ans = np.bitwise_or(ans, x_bit_shift)
     # print(scale.dtype)
@@ -1263,9 +1264,6 @@ class OutputFile:
             elapsed = time.time() - start
             size = ' x '.join(f"{dim:6d}" for dim in lazy_tensor.shape)
             padi = len(str(len(model)))
-            # print(name)
-            # print(ndarray.dtype)
-            # asfasf
             logger.info(
                 f"[{i + 1:{padi}d}/{len(model)}] Writing tensor {name:38s} | size {size:16} | type {lazy_tensor.data_type.name:4} | T+{int(elapsed):4}"
             )

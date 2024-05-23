@@ -2091,18 +2091,70 @@ inline static void ggml_vec_dot_i2_f32(int64_t n, float * restrict s, const floa
     uint8_t weight;
     int shift;
     uint32_t* inp;
-    #pragma unroll
+    sumf += 1;
+    sumf ^= 0x01;
+    shift =1;
+    // for (int i=0; i<40; i++) {
+    //     sumf *= (int)x[i];
+    //     sumf += 1;
+    // }
     for (int64_t i = 0; i < n / 4; ++i) {
         wi = i / 4;
         shift = i % 4;
         weight = w[i / 4];
 
-        // inp = (uint32_t*)(&(x[i]));
-        // *inp = *inp & 0x000000001;
+        uint8_t* inp = (uint8_t*)(&(x[i]));
+        // *inp = *inp & 0x01;
         // *inp = (*inp) ^ ((-(uint32_t)((weight >> (7 - shift - shift)) & 0x01)) & 0x80000000);
-        // *inp = (*inp) & (-(uint32_t)((weight >> (6 - shift - shift)) & 0x01));
-
+        // *inp = (*inp) & (-(uint8_t)((weight >> (6 - 2*shift)) & 0x01));
         sumf += (int)x[i];
+        sumf += 1;
+        sumf += 1;
+        sumf += 1;
+    }
+    sumf += 1;
+    *s = sumf;
+}
+
+inline static void ggml_vec_dot_i2_q8_0(int n, float * restrict s, const void * restrict vx, const uint8_t * restrict vy) {
+    const int qk = QK8_0;
+    const int nb = n / qk;
+    
+    const block_q8_0 * restrict x = vx;
+    const uint16_t    * restrict y = vy;
+
+    float sumf = 0.0;
+    int sumi01 = 0;
+    int sumi02 = 0;
+    int sumi03 = 0;
+    int sumi04 = 0;
+    int sumi11 = 0;
+    int sumi12 = 0;
+    int sumi13 = 0;
+    int sumi14 = 0;
+    for (int64_t i = 0; i < nb; ++i) {
+        sumi01 = 0;
+        sumi02 = 0;
+        sumi03 = 0;
+        sumi04 = 0;
+        sumi11 = 0;
+        sumi12 = 0;
+        sumi13 = 0;
+        sumi14 = 0;
+
+        for (int j = 0; j < qk / 4; ++j) {
+            sumi01 += x[i].qs[j + 0]  * ((y[i*4 + 0] >> 2*j) & 0x03 - 1);
+            // sumi02 += x[i].qs[j + 4]  * ((y[i*8 + 1] >> 2*j) & 0x03 - 1);
+            sumi03 += x[i].qs[j + 8]  * ((y[i*4 + 2] >> 2*j) & 0x03 - 1);
+            // sumi04 += x[i].qs[j + 12] * ((y[i*8 + 3] >> 2*j) & 0x03 - 1);
+            sumi11 += x[i].qs[j + 16] * ((y[i*4 + 4] >> 2*j) & 0x03 - 1);
+            // sumi12 += x[i].qs[j + 20] * ((y[i*8 + 5] >> 2*j) & 0x03 - 1);
+            sumi13 += x[i].qs[j + 24] * ((y[i*4 + 6] >> 2*j) & 0x03 - 1);
+            // sumi14 += x[i].qs[j + 28] * ((y[i*8 + 7] >> 2*j) & 0x03 - 1);
+        }
+
+        sumf += ((sumi01 + sumi02 + sumi03 + sumi04) + (sumi11 + sumi12 + sumi13 + sumi14))
+                * (GGML_FP16_TO_FP32(x[i].d));
     }
     *s = sumf;
 }
@@ -11141,14 +11193,14 @@ static void ggml_compute_forward_bitnet_mul_mat(
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
 
-    int vec_dot_type = GGML_TYPE_Q8_K;
+    int vec_dot_type = GGML_TYPE_Q8_0;
 
     if (params->type == GGML_TASK_TYPE_INIT) {
         if (ith != 0) {
             return;
         }
         char * wdata = params->wdata;
-        const size_t row_size = ggml_row_size(GGML_TYPE_Q8_K, ne10);
+        const size_t row_size = ggml_row_size(GGML_TYPE_Q8_0, ne10);
 
         assert(params->wsize >= ne11*ne12*ne13*row_size);
         GGML_ASSERT(src1->type == GGML_TYPE_F32);
@@ -11156,7 +11208,7 @@ static void ggml_compute_forward_bitnet_mul_mat(
         for (int64_t i13 = 0; i13 < ne13; ++i13) {
             for (int64_t i12 = 0; i12 < ne12; ++i12) {
                 for (int64_t i11 = 0; i11 < ne11; ++i11) {
-                    quantize_row_q8_K((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
+                    quantize_row_q8_0((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) wdata, ne10);
                         wdata += row_size;
                 }
             }
@@ -11187,7 +11239,7 @@ static void ggml_compute_forward_bitnet_mul_mat(
                 float * dst_col = (float *) ((char *) dst->data + (i01 + i02*ne02 + i03*ne03) * nb0);
                 float * inp_row = (const char *) wdata;
                 uint8_t * weight_col = (uint8_t *) ((char *) src0->data + (i01*ne00 + i02*ne02 + i03*ne03) / 4);
-                ggml_vec_dot_i2_q8_K(ne00, dst_col, 1, inp_row, 1, weight_col, 1, 1);
+                ggml_vec_dot_i2_q8_0(ne00, dst_col, inp_row, weight_col);
                 // ggml_vec_dot_i2_f32(ne00, dst_col, inp_row, weight_col, scale);
             }
         }
@@ -11234,7 +11286,7 @@ static void ggml_compute_forward_mul_mat(
     const int ith = params->ith;
     const int nth = params->nth;
 
-    const enum ggml_type type = src0->type;
+    const enum ggml_type type = GGML_TYPE_F16;
 
     const bool src1_cont = ggml_is_contiguous(src1);
     // printf("src1_cont:%d\n", src1_cont);
@@ -11250,14 +11302,14 @@ static void ggml_compute_forward_mul_mat(
     GGML_ASSERT(ne3 == ne13);
 
     // we don't support permuted src0 or src1
-    GGML_ASSERT(nb00 == ggml_type_size(type));
-    GGML_ASSERT(nb10 == ggml_type_size(src1->type));
+    // GGML_ASSERT(nb00 == ggml_type_size(type));
+    // GGML_ASSERT(nb10 == ggml_type_size(src1->type));
 
-    // dst cannot be transposed or permuted
-    GGML_ASSERT(nb0 == sizeof(float));
-    GGML_ASSERT(nb0 <= nb1);
-    GGML_ASSERT(nb1 <= nb2);
-    GGML_ASSERT(nb2 <= nb3);
+    // // dst cannot be transposed or permuted
+    // GGML_ASSERT(nb0 == sizeof(float));
+    // GGML_ASSERT(nb0 <= nb1);
+    // GGML_ASSERT(nb1 <= nb2);
+    // GGML_ASSERT(nb2 <= nb3);
 
     // broadcast factors
     const int64_t r2 = ne12/ne02;
@@ -18815,6 +18867,9 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads, int n_cur_
         case GGML_OP_MEAN:
         case GGML_OP_BITLINEAR_QUANT:
         case GGML_OP_BITNET_MUL_MAT:
+            {
+                n_tasks = n_threads;
+            } break;
         case GGML_OP_ARGMAX:
         case GGML_OP_REPEAT:
         case GGML_OP_REPEAT_BACK:
