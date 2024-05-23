@@ -2116,48 +2116,51 @@ inline static void ggml_vec_dot_i2_f32(int64_t n, float * restrict s, const floa
     *s = sumf;
 }
 
-inline static void ggml_vec_dot_i2_q8_0(int n, float * restrict s, const void * restrict vx, const uint8_t * restrict vy) {
-    const int qk = QK8_0;
-    const int nb = n / qk;
+// inline static void ggml_vec_dot_i2_q8_0(int n, float * restrict s, const void * restrict vx, const uint8_t * restrict vy) {
+//     const int qk = QK8_0;
+//     const int nb = n / qk;
     
-    const block_q8_0 * restrict x = vx;
-    const uint16_t    * restrict y = vy;
+//     const block_q8_0 * restrict x = vx;
+//     const uint16_t    * restrict y = vy;
 
-    float sumf = 0.0;
-    int sumi01 = 0;
-    int sumi02 = 0;
-    int sumi03 = 0;
-    int sumi04 = 0;
-    int sumi11 = 0;
-    int sumi12 = 0;
-    int sumi13 = 0;
-    int sumi14 = 0;
-    for (int64_t i = 0; i < nb; ++i) {
-        sumi01 = 0;
-        sumi02 = 0;
-        sumi03 = 0;
-        sumi04 = 0;
-        sumi11 = 0;
-        sumi12 = 0;
-        sumi13 = 0;
-        sumi14 = 0;
+//     float sumf = 0.0;
+//     int sumi01 = 0;
+//     int sumi02 = 0;
+//     int sumi03 = 0;
+//     int sumi04 = 0;
+//     int sumi11 = 0;
+//     int sumi12 = 0;
+//     int sumi13 = 0;
+//     int sumi14 = 0;
+//     for (int64_t i = 0; i < nb; ++i) {
+//         sumi01 = 0;
+//         sumi02 = 0;
+//         sumi03 = 0;
+//         sumi04 = 0;
+//         sumi11 = 0;
+//         sumi12 = 0;
+//         sumi13 = 0;
+//         sumi14 = 0;
 
-        for (int j = 0; j < qk / 4; ++j) {
-            sumi01 += x[i].qs[j + 0]  * ((y[i*4 + 0] >> 2*j) & 0x03 - 1);
-            // sumi02 += x[i].qs[j + 4]  * ((y[i*8 + 1] >> 2*j) & 0x03 - 1);
-            sumi03 += x[i].qs[j + 8]  * ((y[i*4 + 2] >> 2*j) & 0x03 - 1);
-            // sumi04 += x[i].qs[j + 12] * ((y[i*8 + 3] >> 2*j) & 0x03 - 1);
-            sumi11 += x[i].qs[j + 16] * ((y[i*4 + 4] >> 2*j) & 0x03 - 1);
-            // sumi12 += x[i].qs[j + 20] * ((y[i*8 + 5] >> 2*j) & 0x03 - 1);
-            sumi13 += x[i].qs[j + 24] * ((y[i*4 + 6] >> 2*j) & 0x03 - 1);
-            // sumi14 += x[i].qs[j + 28] * ((y[i*8 + 7] >> 2*j) & 0x03 - 1);
-        }
+//         for (int j = 0; j < qk / 8; ++j) {
+//             // sumi01 += x[i].qs[j + 0]  * ((y[i*4 + 0] >> 2*j) & 0x03 - 1);
+//             // // sumi02 += x[i].qs[j + 4]  * ((y[i*8 + 1] >> 2*j) & 0x03 - 1);
+//             // sumi03 += x[i].qs[j + 8]  * ((y[i*4 + 2] >> 2*j) & 0x03 - 1);
+//             // // sumi04 += x[i].qs[j + 12] * ((y[i*8 + 3] >> 2*j) & 0x03 - 1);
+//             // sumi11 += x[i].qs[j + 16] * ((y[i*4 + 4] >> 2*j) & 0x03 - 1);
+//             // // sumi12 += x[i].qs[j + 20] * ((y[i*8 + 5] >> 2*j) & 0x03 - 1);
+//             // sumi13 += x[i].qs[j + 24] * ((y[i*4 + 6] >> 2*j) & 0x03 - 1);
+//             __m256i xaux = _mm256_loadu_si256((const __m256i *)x[i].qs[j]);
+//             __m256i yaux = _mm256_loadu_si256((const __m256i *)y[i*4]);
+//             __m256 check = mul_sum_i8_pairs_float(xaux, yaux);
+//             // sumi14 += x[i].qs[j + 28] * ((y[i*8 + 7] >> 2*j) & 0x03 - 1);
+//         }
 
-        sumf += ((sumi01 + sumi02 + sumi03 + sumi04) + (sumi11 + sumi12 + sumi13 + sumi14))
-                * (GGML_FP16_TO_FP32(x[i].d));
-    }
-    *s = sumf;
-}
+//         sumf += ((sumi01 + sumi02 + sumi03 + sumi04) + (sumi11 + sumi12 + sumi13 + sumi14))
+//                 * (GGML_FP16_TO_FP32(x[i].d));
+//     }
+//     *s = sumf;
+// }
 
 inline static void ggml_vec_absmaxclamp_f32(const int n, float * s, const float * x, float min) {
     float max = min;
