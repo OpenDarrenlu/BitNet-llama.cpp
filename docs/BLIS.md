@@ -23,7 +23,7 @@ Install BLIS:
 sudo make install
 ```
 
-We recommend using openmp since it's easier to modify the cores being used.
+We recommend using openmp since it's easier to modify the cores been used.
 
 ### llama.cpp compilation
 

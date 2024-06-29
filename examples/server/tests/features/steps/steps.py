@@ -23,7 +23,6 @@ from prometheus_client import parser
 def step_server_config(context, server_fqdn, server_port):
     context.server_fqdn = server_fqdn
     context.server_port = int(server_port)
-    context.n_threads = None
     context.n_gpu_layer = None
     if 'PORT' in os.environ:
         context.server_port = int(os.environ['PORT'])
@@ -110,11 +109,6 @@ def step_n_gpu_layer(context, ngl):
     context.n_gpu_layer = ngl
 
 
-@step('{n_threads:d} threads')
-def step_n_threads(context, n_threads):
-    context.n_thread = n_threads
-
-
 @step('{draft:d} as draft')
 def step_draft(context, draft):
     context.draft = draft
@@ -199,7 +193,7 @@ async def step_wait_for_the_server_to_be_started(context, expecting_status):
 
         case 'ready' | 'idle':
             await wait_for_health_status(context, context.base_url, 200, 'ok',
-                                         timeout=30,
+                                         timeout=10,
                                          params={'fail_on_no_slot': 0, 'include_slots': 0},
                                          slots_idle=context.n_slots,
                                          slots_processing=0,
@@ -280,19 +274,10 @@ async def step_predictions_equal(context):
 
 @step('all predictions are different')
 @async_run_until_complete
-async def step_predictions_different(context):
+async def step_predictions_equal(context):
     n_completions = await gather_tasks_results(context)
     assert n_completions >= 2, "need at least 2 completions"
     assert_all_predictions_different(context.tasks_result)
-    context.tasks_result = []
-
-
-@step('all token probabilities are equal')
-@async_run_until_complete
-async def step_token_probabilities_equal(context):
-    n_completions = await gather_tasks_results(context)
-    assert n_completions >= 2, "need at least 2 completions"
-    assert_all_token_probabilities_equal(context.tasks_result)
     context.tasks_result = []
 
 
@@ -389,11 +374,6 @@ def step_seed(context, seed):
         context.seed = [seed]
     else:
         context.seed.append(seed)
-
-
-@step('BOS token is {bos:d}')
-def step_bos_token(context, bos):
-    context.bos = bos
 
 
 @step('a prefix prompt')
@@ -676,29 +656,21 @@ async def all_embeddings_are_generated(context):
         assert_embeddings(context.tasks_result.pop().pop())
 
 
-@step('adding special tokens')
-def step_tokenize_set_add_special(context):
-    context.tokenize_add_special = True
-
-
 @step('tokenizing')
 @async_run_until_complete
 async def step_tokenize(context):
     context.tokenized_text = context_text(context)
     async with aiohttp.ClientSession() as session:
-        tokenize_args = {
-            "content": context.tokenized_text,
-        }
-        if getattr(context, 'tokenize_add_special', None) is not None:
-            tokenize_args['add_special'] = context.tokenize_add_special
         async with session.post(f'{context.base_url}/tokenize',
-                                json=tokenize_args) as response:
+                                json={
+                                    "content": context.tokenized_text,
+                                }) as response:
             assert response.status == 200
             tokenize_json = await response.json()
             context.tokens = tokenize_json['tokens']
 
 
-@step('tokens can be detokenized')
+@step('tokens can be detokenize')
 @async_run_until_complete
 async def step_detokenize(context):
     assert len(context.tokens) > 0
@@ -711,21 +683,6 @@ async def step_detokenize(context):
             detokenize_json = await response.json()
             # SPM tokenizer adds a whitespace prefix: https://github.com/google/sentencepiece/issues/15
             assert context.tokenized_text == detokenize_json['content'].strip()
-
-
-@step('tokens begin with BOS')
-def step_strings_for_tokenization(context):
-    assert context.tokens[0] == context.bos
-
-
-@step('tokens do not begin with BOS')
-def step_strings_for_tokenization(context):
-    assert context.tokens[0] != context.bos
-
-
-@step('first token is removed')
-def step_strings_for_tokenization(context):
-    context.tokens = context.tokens[1:]
 
 
 @step('an OPTIONS request is sent from {origin}')
@@ -883,8 +840,7 @@ async def request_completion(prompt,
                                     "cache_prompt": cache_prompt,
                                     "id_slot": id_slot,
                                     "seed": seed if seed is not None else 42,
-                                    "temperature": temperature if temperature is not None else 0.8,
-                                    "n_probs": 2,
+                                    "temperature": temperature if temperature is not None else "0.8f",
                                 },
                                 headers=headers,
                                 timeout=3600) as response:
@@ -903,7 +859,6 @@ async def oai_chat_completions(user_prompt,
                                base_path,
                                async_client,
                                debug=False,
-                               temperature=None,
                                model=None,
                                n_predict=None,
                                enable_streaming=None,
@@ -930,8 +885,7 @@ async def oai_chat_completions(user_prompt,
         "model": model,
         "max_tokens": n_predict,
         "stream": enable_streaming,
-        "temperature": temperature if temperature is not None else 0.0,
-        "seed": seed,
+        "seed": seed
     }
     if response_format is not None:
         payload['response_format'] = response_format
@@ -957,7 +911,7 @@ async def oai_chat_completions(user_prompt,
                     while event_received:
                         event_received = False
                         async for line_in_bytes in response.content:
-                            line = line_in_bytes.decode('utf-8')
+                            line = line_in_bytes.decode('utf8')
                             line = line.rstrip('\n').rstrip('\r')
                             if line == '':
                                 continue
@@ -996,8 +950,7 @@ async def oai_chat_completions(user_prompt,
                 max_tokens=n_predict,
                 stream=enable_streaming,
                 response_format=payload.get('response_format'),
-                seed=seed,
-                temperature=payload['temperature']
+                seed=seed
             )
         except openai.error.AuthenticationError as e:
             if expect_api_error is not None and expect_api_error:
@@ -1139,23 +1092,6 @@ def assert_all_predictions_different(completion_responses):
         assert content_i != content_j, "contents not different"
 
 
-def assert_all_token_probabilities_equal(completion_responses):
-    n_predict = len(completion_responses[0]['completion_probabilities'])
-    if 'DEBUG' in os.environ and os.environ['DEBUG'] == 'ON':
-        for pos in range(n_predict):
-            for i, response_i in enumerate(completion_responses):
-                probs_i = response_i['completion_probabilities'][pos]['probs']
-                print(f"pos {pos}, probs {i}: {probs_i}")
-    for pos in range(n_predict):
-        for i, response_i in enumerate(completion_responses):
-            probs_i = response_i['completion_probabilities'][pos]['probs']
-            for j, response_j in enumerate(completion_responses):
-                if i == j:
-                    continue
-                probs_j = response_j['completion_probabilities'][pos]['probs']
-            assert probs_i == probs_j, "contents not equal"
-
-
 async def gather_tasks_results(context):
     n_tasks = len(context.concurrent_tasks)
     if context.debug:
@@ -1272,9 +1208,9 @@ def context_text(context):
 
 def start_server_background(context):
     if os.name == 'nt':
-        context.server_path = '../../../build/bin/Release/llama-server.exe'
+        context.server_path = '../../../build/bin/Release/server.exe'
     else:
-        context.server_path = '../../../build/bin/llama-server'
+        context.server_path = '../../../build/bin/server'
     if 'LLAMA_SERVER_BIN_PATH' in os.environ:
         context.server_path = os.environ['LLAMA_SERVER_BIN_PATH']
     server_listen_addr = context.server_fqdn
@@ -1294,8 +1230,6 @@ def start_server_background(context):
         server_args.extend(['--batch-size', context.n_batch])
     if context.n_ubatch:
         server_args.extend(['--ubatch-size', context.n_ubatch])
-    if context.n_threads:
-        server_args.extend(['--threads', context.threads])
     if context.n_gpu_layer:
         server_args.extend(['--n-gpu-layers', context.n_gpu_layer])
     if context.draft is not None:

@@ -131,29 +131,22 @@ class LlamaState: ObservableObject {
 
         messageLog += "\(text)"
 
-        Task.detached {
-            while await llamaContext.n_cur < llamaContext.n_len {
-                let result = await llamaContext.completion_loop()
-                await MainActor.run {
-                    self.messageLog += "\(result)"
-                }
-            }
-
-            let t_end = DispatchTime.now().uptimeNanoseconds
-            let t_generation = Double(t_end - t_heat_end) / self.NS_PER_S
-            let tokens_per_second = Double(await llamaContext.n_len) / t_generation
-
-            await llamaContext.clear()
-
-            await MainActor.run {
-                self.messageLog += """
-                    \n
-                    Done
-                    Heat up took \(t_heat)s
-                    Generated \(tokens_per_second) t/s\n
-                    """
-            }
+        while await llamaContext.n_cur < llamaContext.n_len {
+            let result = await llamaContext.completion_loop()
+            messageLog += "\(result)"
         }
+
+        let t_end = DispatchTime.now().uptimeNanoseconds
+        let t_generation = Double(t_end - t_heat_end) / NS_PER_S
+        let tokens_per_second = Double(await llamaContext.n_len) / t_generation
+
+        await llamaContext.clear()
+        messageLog += """
+            \n
+            Done
+            Heat up took \(t_heat)s
+            Generated \(tokens_per_second) t/s\n
+            """
     }
 
     func bench() async {

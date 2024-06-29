@@ -1,8 +1,6 @@
 # quantize
 
-You can also use the [GGUF-my-repo](https://huggingface.co/spaces/ggml-org/gguf-my-repo) space on Hugging Face to build your own quants without any setup.
-
-Note: It is synced from llama.cpp `main` every 6 hours.
+TODO
 
 ## Llama 2 7B
 

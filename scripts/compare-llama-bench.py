@@ -19,22 +19,22 @@ logger = logging.getLogger("compare-llama-bench")
 
 # Properties by which to differentiate results per commit:
 KEY_PROPERTIES = [
-    "cpu_info", "gpu_info", "n_gpu_layers", "cuda", "vulkan", "kompute", "metal", "sycl", "rpc", "gpu_blas",
-    "blas", "model_filename", "model_type", "model_size", "model_n_params", "n_batch", "n_ubatch", "embeddings", "n_threads",
-    "type_k", "type_v", "use_mmap", "no_kv_offload", "split_mode", "main_gpu", "tensor_split", "flash_attn", "n_prompt", "n_gen"
+    "cpu_info", "gpu_info", "n_gpu_layers", "main_gpu", "cuda", "opencl", "metal", "gpu_blas",
+    "blas", "model_filename", "model_type", "model_size", "model_n_params", "n_batch", "n_threads",
+    "type_k", "type_v", "no_kv_offload", "tensor_split", "n_prompt", "n_gen"
 ]
 
 # Properties that are boolean and are converted to Yes/No for the table:
-BOOL_PROPERTIES = ["cuda", "vulkan", "kompute", "metal", "sycl", "gpu_blas", "blas", "embeddings", "use_mmap", "no_kv_offload", "flash_attn"]
+BOOL_PROPERTIES = ["cuda", "opencl", "metal", "gpu_blas", "blas"]
 
 # Header names for the table:
 PRETTY_NAMES = {
-    "cuda": "CUDA", "vulkan": "Vulkan", "kompute": "Kompute", "metal": "Metal", "sycl": "SYCL", "rpc": "RPC",
-    "gpu_blas": "GPU BLAS", "blas": "BLAS", "cpu_info": "CPU", "gpu_info": "GPU", "model_filename": "File", "model_type": "Model",
-    "model_size": "Model Size [GiB]", "model_n_params": "Num. of Par.", "n_batch": "Batch size", "n_ubatch": "Microbatch size",
-    "n_threads": "Threads", "type_k": "K type", "type_v": "V type", "n_gpu_layers": "GPU layers", "split_mode": "Split mode",
-    "main_gpu": "Main GPU", "no_kv_offload": "NKVO", "flash_attn": "FlashAttention", "tensor_split": "Tensor split",
-    "use_mmap": "Use mmap", "embeddings": "Embeddings",
+    "cuda": "CUDA", "opencl": "OpenCL", "metal": "Metal", "gpu_blas": "GPU BLAS", "blas": "BLAS",
+    "cpu_info": "CPU", "gpu_info": "GPU", "model_filename": "File", "model_type": "Model",
+    "model_size": "Model Size [GiB]", "model_n_params": "Num. of Parameters",
+    "n_batch": "Batch size", "n_threads": "Threads", "type_k": "K type", "type_v": "V type",
+    "n_gpu_layers": "GPU layers", "main_gpu": "Main GPU", "no_kv_offload": "NKVO",
+    "tensor_split": "Tensor split"
 }
 
 DEFAULT_SHOW = ["model_type"]  # Always show these properties by default.
@@ -93,14 +93,11 @@ help_s = (
     "specified values are averaged WITHOUT weighing by the --repetitions parameter of llama-bench."
 )
 parser.add_argument("-s", "--show", help=help_s)
-parser.add_argument("--verbose", action="store_true", help="increase output verbosity")
 
 known_args, unknown_args = parser.parse_known_args()
 
-logging.basicConfig(level=logging.DEBUG if known_args.verbose else logging.INFO)
-
 if unknown_args:
-    logger.error(f"Received unknown args: {unknown_args}.\n")
+    logger.error(f"Received unknown args: {unknown_args}.")
     parser.print_help()
     sys.exit(1)
 
@@ -113,7 +110,7 @@ if input_file is None:
         input_file = sqlite_files[0]
 
 if input_file is None:
-    logger.error("Cannot find a suitable input file, please provide one.\n")
+    logger.error("Cannot find a suitable input file, please provide one.")
     parser.print_help()
     sys.exit(1)
 
@@ -205,12 +202,12 @@ elif repo is not None:
     hexsha8_baseline = find_parent_in_data(repo.heads.master.commit)
 
     if hexsha8_baseline is None:
-        logger.error("No baseline was provided and did not find data for any master branch commits.\n")
+        logger.error("No baseline was provided and did not find data for any master branch commits.")
         parser.print_help()
         sys.exit(1)
 else:
     logger.error("No baseline was provided and the current working directory "
-                 "is not part of a git repository from which a baseline could be inferred.\n")
+                 "is not part of a git repository from which a baseline could be inferred.")
     parser.print_help()
     sys.exit(1)
 
@@ -241,7 +238,7 @@ elif repo is not None:
             break
 
     if hexsha8_compare is None:
-        logger.error("No compare target was provided and did not find data for any non-master commits.\n")
+        logger.error("No compare target was provided and did not find data for any non-master commits.")
         parser.print_help()
         sys.exit(1)
 else:
@@ -325,12 +322,8 @@ table = []
 for row in rows_show:
     n_prompt = int(row[-4])
     n_gen    = int(row[-3])
-    if n_prompt != 0 and n_gen == 0:
-        test_name = f"pp{n_prompt}"
-    elif n_prompt == 0 and n_gen != 0:
-        test_name = f"tg{n_gen}"
-    else:
-        test_name = f"pp{n_prompt}+tg{n_gen}"
+    assert n_prompt == 0 or n_gen == 0
+    test_name = f"tg{n_gen}" if n_prompt == 0 else f"pp{n_prompt}"
     #           Regular columns    test name    avg t/s values              Speedup
     #            VVVVVVVVVVVVV     VVVVVVVVV    VVVVVVVVVVVVVV              VVVVVVV
     table.append(list(row[:-4]) + [test_name] + list(row[-2:]) + [float(row[-1]) / float(row[-2])])
@@ -368,7 +361,7 @@ if "gpu_info" in show:
 headers  = [PRETTY_NAMES[p] for p in show]
 headers += ["Test", f"t/s {name_baseline}", f"t/s {name_compare}", "Speedup"]
 
-print(tabulate( # noqa: NP100
+logger.info(tabulate(
     table,
     headers=headers,
     floatfmt=".2f",

@@ -12,7 +12,7 @@ FROM ${BASE_CUDA_DEV_CONTAINER} as build
 ARG CUDA_DOCKER_ARCH=all
 
 RUN apt-get update && \
-    apt-get install -y build-essential python3 python3-pip git libcurl4-openssl-dev libgomp1
+    apt-get install -y build-essential python3 python3-pip git libcurl4-openssl-dev
 
 COPY requirements.txt   requirements.txt
 COPY requirements       requirements
@@ -31,6 +31,6 @@ ENV LLAMA_CUDA=1
 # Enable cURL
 ENV LLAMA_CURL=1
 
-RUN make -j$(nproc)
+RUN make
 
 ENTRYPOINT ["/app/.devops/tools.sh"]

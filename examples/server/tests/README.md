@@ -27,8 +27,10 @@ To mitigate it, you can increase values in `n_predict`, `kv_size`.
 
 ```shell
 cd ../../..
-cmake -B build -DLLAMA_CURL=ON
-cmake --build build --target llama-server
+mkdir build
+cd build
+cmake -DLLAMA_CURL=ON ../
+cmake --build . --target server
 ```
 
 2. Start the test: `./tests.sh`
@@ -38,7 +40,7 @@ It's possible to override some scenario steps values with environment variables:
 | variable                 | description                                                                                    |
 |--------------------------|------------------------------------------------------------------------------------------------|
 | `PORT`                   | `context.server_port` to set the listening port of the server during scenario, default: `8080` |
-| `LLAMA_SERVER_BIN_PATH`  | to change the server binary path, default: `../../../build/bin/llama-server`                         |
+| `LLAMA_SERVER_BIN_PATH`  | to change the server binary path, default: `../../../build/bin/server`                         |
 | `DEBUG`                  | "ON" to enable steps and server verbose mode `--verbose`                                       |
 | `SERVER_LOG_FORMAT_JSON` | if set switch server logs to json format                                                       |
 | `N_GPU_LAYERS`           | number of model layers to offload to VRAM `-ngl --n-gpu-layers`                                |

@@ -12,8 +12,8 @@ build*/
 
 models/*
 
-/llama-cli
-/llama-quantize
+/main
+/quantize
 
 arm_neon.h
 compile_commands.json

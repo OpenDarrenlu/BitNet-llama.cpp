@@ -65,8 +65,13 @@ typedef sycl::half2 ggml_half2;
 // QK = number of values after dequantization
 // QK_K = super-block size
 
+#ifdef GGML_QKK_64
+#define QK_K 64
+#define K_SCALE_SIZE 4
+#else
 #define QK_K 256
 #define K_SCALE_SIZE 12
+#endif // GGML_QKK_64
 
 #if defined(GGML_COMMON_DECL_CUDA) || defined(GGML_COMMON_DECL_HIP) || defined(GGML_COMMON_DECL_SYCL)
 // QR = QK / number of values before dequantization
@@ -123,17 +128,16 @@ typedef sycl::half2 ggml_half2;
 #define QI1_S (QK_K / (4*QR1_S))
 #define QR1_S 8
 
-#define QI1_M (QK_K / (4*QR1_M))
-#define QR1_M 8
-
 #define QI4_NL (QK4_NL / (4*QR4_NL))
 #define QR4_NL 2
 
+#if QK_K == 64
+#define QI4_XS QI4_NL
+#define QR4_XS QR4_NL
+#else
 #define QI4_XS (QK_K / (4*QR4_XS))
 #define QR4_XS 8
-
-#define QI3_S (QK_K / (4*QR3_S))
-#define QR3_S 8
+#endif
 
 #endif // GGML_COMMON_DECL_CUDA || GGML_COMMON_DECL_HIP
 
@@ -224,6 +228,15 @@ static_assert(sizeof(block_q2_K) == 2*sizeof(ggml_half) + QK_K/16 + QK_K/4, "wro
 // weight is represented as x = a * q
 // 16 blocks of 16 elements each
 // Effectively 3.4375 bits per weight
+#ifdef GGML_QKK_64
+typedef struct {
+    uint8_t hmask[QK_K/8]; // quants - high bit
+    uint8_t qs[QK_K/4];    // quants - low 2 bits
+    uint8_t scales[2];
+    ggml_half d;           // super-block scale
+} block_q3_K;
+static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 2, "wrong q3_K block size/padding");
+#else
 typedef struct {
     uint8_t hmask[QK_K/8]; // quants - high bit
     uint8_t qs[QK_K/4];    // quants - low 2 bits
@@ -231,11 +244,20 @@ typedef struct {
     ggml_half d;           // super-block scale
 } block_q3_K;
 static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12, "wrong q3_K block size/padding");
+#endif
 
 // 4-bit quantization
 // 8 blocks of 32 elements each
 // weight is represented as x = a * q + b
 // Effectively 4.5 bits per weight
+#ifdef GGML_QKK_64
+typedef struct {
+    ggml_half d[2];     // super-block scales/mins
+    uint8_t scales[2];  // 4-bit block scales/mins
+    uint8_t qs[QK_K/2]; // 4--bit quants
+} block_q4_K;
+static_assert(sizeof(block_q4_K) == 2*sizeof(ggml_half) + QK_K/2 + 2, "wrong q4_K block size/padding");
+#else
 typedef struct {
     union {
         struct {
@@ -248,11 +270,21 @@ typedef struct {
     uint8_t qs[QK_K/2];           // 4--bit quants
 } block_q4_K;
 static_assert(sizeof(block_q4_K) == 2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2, "wrong q4_K block size/padding");
+#endif
 
 // 5-bit quantization
 // 8 blocks of 32 elements each
 // weight is represented as x = a * q + b
 // Effectively 5.5 bits per weight
+#ifdef GGML_QKK_64
+typedef struct {
+    ggml_half d;             // super-block scale
+    int8_t  scales[QK_K/16]; // 8-bit block scales
+    uint8_t qh[QK_K/8];      // quants, high bit
+    uint8_t qs[QK_K/2];      // quants, low 4 bits
+} block_q5_K;
+static_assert(sizeof(block_q5_K) == sizeof(ggml_half) + QK_K/2 + QK_K/8 + QK_K/16, "wrong q5_K block size/padding");
+#else
 typedef struct {
     union {
         struct {
@@ -266,6 +298,7 @@ typedef struct {
     uint8_t qs[QK_K/2];           // quants, low 4 bits
 } block_q5_K;
 static_assert(sizeof(block_q5_K) == 2*sizeof(ggml_half) + K_SCALE_SIZE + QK_K/2 + QK_K/8, "wrong q5_K block size/padding");
+#endif
 
 // 6-bit quantization
 // weight is represented as x = a * q
@@ -323,7 +356,11 @@ typedef struct {
 static_assert(sizeof(block_iq3_xxs) == sizeof(ggml_half) + 3*(QK_K/8), "wrong iq3_xxs block size/padding");
 
 // 3.4375 bpw
+#if QK_K == 64
+#define IQ3S_N_SCALE 2
+#else
 #define IQ3S_N_SCALE QK_K/64
+#endif
 typedef struct {
     ggml_half d;
     uint8_t qs[QK_K/4];
@@ -344,9 +381,16 @@ static_assert(sizeof(block_iq1_s) == sizeof(ggml_half) + QK_K/8 + QK_K/16, "wron
 typedef struct {
     uint8_t  qs[QK_K/8];      // grid index, low 8 bits
     uint8_t  qh[QK_K/16];     // grid index, high 3 bits + grid shift bit (for two groups of 8)
+#if QK_K == 64
+    ggml_half d;
+#endif
     uint8_t  scales[QK_K/32]; // 3-bit block scales (4-bit if QK_K == 64)
 } block_iq1_m;
+#if QK_K == 64
+static_assert(sizeof(block_iq1_m) == QK_K/8 + QK_K/16 + QK_K/32 + sizeof(ggml_half), "wrong iq1_m block size/padding");
+#else
 static_assert(sizeof(block_iq1_m) == QK_K/8 + QK_K/16 + QK_K/32, "wrong iq1_m block size/padding");
+#endif
 
 // Used by IQ1_M quants
 typedef union {
@@ -362,6 +406,9 @@ typedef struct {
 } block_iq4_nl;
 static_assert(sizeof(block_iq4_nl) == sizeof(ggml_half) + QK4_NL/2, "wrong iq4_nl block size/padding");
 
+#if QK_K == 64
+#define block_iq4_xs block_iq4_nl
+#else
 typedef struct {
     ggml_half d;
     uint16_t scales_h;
@@ -369,6 +416,7 @@ typedef struct {
     uint8_t  qs[QK_K/2];
 } block_iq4_xs;
 static_assert(sizeof(block_iq4_xs) == sizeof(ggml_half) + sizeof(uint16_t) + QK_K/64 + QK_K/2, "wrong iq4_xs block size/padding");
+#endif
 
 #endif // GGML_COMMON_DECL
 #endif // GGML_COMMON_DECL
@@ -1026,6 +1074,73 @@ GGML_TABLE_END()
 #define IQ1S_DELTA 0.125f
 #define IQ1M_DELTA 0.125f
 #if defined(GGML_COMMON_IMPL_C)
+GGML_TABLE_BEGIN(uint32_t, i2_q8, 256)
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00010000, 0x01010000, 0x00010000, 0xff010000, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00ff0000, 0x01ff0000, 0x00ff0000, 0xffff0000, 
+0x00000100, 0x01000100, 0x00000100, 0xff000100, 
+0x00010100, 0x01010100, 0x00010100, 0xff010100, 
+0x00000100, 0x01000100, 0x00000100, 0xff000100, 
+0x00ff0100, 0x01ff0100, 0x00ff0100, 0xffff0100, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00010000, 0x01010000, 0x00010000, 0xff010000, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00ff0000, 0x01ff0000, 0x00ff0000, 0xffff0000, 
+0x0000ff00, 0x0100ff00, 0x0000ff00, 0xff00ff00, 
+0x0001ff00, 0x0101ff00, 0x0001ff00, 0xff01ff00, 
+0x0000ff00, 0x0100ff00, 0x0000ff00, 0xff00ff00, 
+0x00ffff00, 0x01ffff00, 0x00ffff00, 0xffffff00, 
+0x00000001, 0x01000001, 0x00000001, 0xff000001, 
+0x00010001, 0x01010001, 0x00010001, 0xff010001, 
+0x00000001, 0x01000001, 0x00000001, 0xff000001, 
+0x00ff0001, 0x01ff0001, 0x00ff0001, 0xffff0001, 
+0x00000101, 0x01000101, 0x00000101, 0xff000101, 
+0x00010101, 0x01010101, 0x00010101, 0xff010101, 
+0x00000101, 0x01000101, 0x00000101, 0xff000101, 
+0x00ff0101, 0x01ff0101, 0x00ff0101, 0xffff0101, 
+0x00000001, 0x01000001, 0x00000001, 0xff000001, 
+0x00010001, 0x01010001, 0x00010001, 0xff010001, 
+0x00000001, 0x01000001, 0x00000001, 0xff000001, 
+0x00ff0001, 0x01ff0001, 0x00ff0001, 0xffff0001, 
+0x0000ff01, 0x0100ff01, 0x0000ff01, 0xff00ff01, 
+0x0001ff01, 0x0101ff01, 0x0001ff01, 0xff01ff01, 
+0x0000ff01, 0x0100ff01, 0x0000ff01, 0xff00ff01, 
+0x00ffff01, 0x01ffff01, 0x00ffff01, 0xffffff01, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00010000, 0x01010000, 0x00010000, 0xff010000, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00ff0000, 0x01ff0000, 0x00ff0000, 0xffff0000, 
+0x00000100, 0x01000100, 0x00000100, 0xff000100, 
+0x00010100, 0x01010100, 0x00010100, 0xff010100, 
+0x00000100, 0x01000100, 0x00000100, 0xff000100, 
+0x00ff0100, 0x01ff0100, 0x00ff0100, 0xffff0100, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00010000, 0x01010000, 0x00010000, 0xff010000, 
+0x00000000, 0x01000000, 0x00000000, 0xff000000, 
+0x00ff0000, 0x01ff0000, 0x00ff0000, 0xffff0000, 
+0x0000ff00, 0x0100ff00, 0x0000ff00, 0xff00ff00, 
+0x0001ff00, 0x0101ff00, 0x0001ff00, 0xff01ff00, 
+0x0000ff00, 0x0100ff00, 0x0000ff00, 0xff00ff00, 
+0x00ffff00, 0x01ffff00, 0x00ffff00, 0xffffff00, 
+0x000000ff, 0x010000ff, 0x000000ff, 0xff0000ff, 
+0x000100ff, 0x010100ff, 0x000100ff, 0xff0100ff, 
+0x000000ff, 0x010000ff, 0x000000ff, 0xff0000ff, 
+0x00ff00ff, 0x01ff00ff, 0x00ff00ff, 0xffff00ff, 
+0x000001ff, 0x010001ff, 0x000001ff, 0xff0001ff, 
+0x000101ff, 0x010101ff, 0x000101ff, 0xff0101ff, 
+0x000001ff, 0x010001ff, 0x000001ff, 0xff0001ff, 
+0x00ff01ff, 0x01ff01ff, 0x00ff01ff, 0xffff01ff, 
+0x000000ff, 0x010000ff, 0x000000ff, 0xff0000ff, 
+0x000100ff, 0x010100ff, 0x000100ff, 0xff0100ff, 
+0x000000ff, 0x010000ff, 0x000000ff, 0xff0000ff, 
+0x00ff00ff, 0x01ff00ff, 0x00ff00ff, 0xffff00ff, 
+0x0000ffff, 0x0100ffff, 0x0000ffff, 0xff00ffff, 
+0x0001ffff, 0x0101ffff, 0x0001ffff, 0xff01ffff, 
+0x0000ffff, 0x0100ffff, 0x0000ffff, 0xff00ffff, 
+0x00ffffff, 0x01ffffff, 0x00ffffff, 0xffffffff,
+GGML_TABLE_END()
+
 GGML_TABLE_BEGIN(uint64_t, iq1s_grid, NGRID_IQ1S)
     0xffffffffffffffff, 0xffffffffffffff01, 0xffffffffffff0000, 0xffffffffffff01ff,
     0xffffffffffff0101, 0xffffffffff00ff00, 0xffffffffff000000, 0xffffffffff01ffff,

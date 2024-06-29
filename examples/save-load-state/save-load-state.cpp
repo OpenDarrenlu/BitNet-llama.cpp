@@ -11,7 +11,6 @@ int main(int argc, char ** argv) {
     params.prompt = "The quick brown fox";
 
     if (!gpt_params_parse(argc, argv, params)) {
-        gpt_params_print_usage(argc, argv, params);
         return 1;
     }
 

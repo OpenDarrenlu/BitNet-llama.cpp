@@ -1,5 +1,5 @@
 # Usage:
-#! ./llama-server -m some-model.gguf &
+#! ./server -m some-model.gguf &
 #! pip install pydantic
 #! python json-schema-pydantic-example.py
 

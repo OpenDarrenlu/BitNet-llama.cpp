@@ -1,2 +1,3 @@
--r ./requirements-convert-legacy-llama.txt
-torch~=2.2.1
+-r ./requirements-convert.txt
+torch~=2.1.1
+einops~=0.7.0
