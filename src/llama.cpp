@@ -13773,7 +13773,7 @@ struct llm_build_context {
         // KQ_mask (mask for 1 head, it will be broadcasted to all heads)
         struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
 
-        for (int il = 0; il < n_layer; ++il) {
+        for (int il = 0; il < 2; ++il) {
             struct ggml_tensor * inpSA = inpL;
 
             cur = llm_build_norm(ctx0, inpL, hparams,
@@ -15032,33 +15032,33 @@ static void llama_set_inputs(llama_context & lctx, const llama_ubatch & batch) {
         ggml_backend_tensor_set(lctx.inp_pos, batch.pos, 0, n_tokens*ggml_element_size(lctx.inp_pos));
     }
 
-    if (hparams.causal_attn || cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
-        GGML_ASSERT(lctx.inp_out_ids && "every model that can must skip unused outputs");
-        const int64_t n_tokens = batch.n_tokens;
+    // if (hparams.causal_attn || cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
+    //     GGML_ASSERT(lctx.inp_out_ids && "every model that can must skip unused outputs");
+    //     const int64_t n_tokens = batch.n_tokens;
 
-        GGML_ASSERT(ggml_backend_buffer_is_host(lctx.inp_out_ids->buffer));
-        int32_t * data = (int32_t *) lctx.inp_out_ids->data;
+    //     GGML_ASSERT(ggml_backend_buffer_is_host(lctx.inp_out_ids->buffer));
+    //     int32_t * data = (int32_t *) lctx.inp_out_ids->data;
 
-        if (lctx.n_outputs == n_tokens) {
-            for (int i = 0; i < n_tokens; ++i) {
-                data[i] = i;
-            }
-        } else if (batch.output) {
-            int32_t n_outputs = 0;
-            for (int i = 0; i < n_tokens; ++i) {
-                if (batch.output[i]) {
-                    data[n_outputs++] = i;
-                }
-            }
-            // the graph needs to have been passed the correct number of outputs
-            GGML_ASSERT(lctx.n_outputs == n_outputs);
-        } else if (lctx.n_outputs == 1) {
-            // only keep last output
-            data[0] = n_tokens - 1;
-        } else {
-            GGML_ASSERT(lctx.n_outputs == 0);
-        }
-    }
+    //     if (lctx.n_outputs == n_tokens) {
+    //         for (int i = 0; i < n_tokens; ++i) {
+    //             data[i] = i;
+    //         }
+    //     } else if (batch.output) {
+    //         int32_t n_outputs = 0;
+    //         for (int i = 0; i < n_tokens; ++i) {
+    //             if (batch.output[i]) {
+    //                 data[n_outputs++] = i;
+    //             }
+    //         }
+    //         // the graph needs to have been passed the correct number of outputs
+    //         GGML_ASSERT(lctx.n_outputs == n_outputs);
+    //     } else if (lctx.n_outputs == 1) {
+    //         // only keep last output
+    //         data[0] = n_tokens - 1;
+    //     } else {
+    //         GGML_ASSERT(lctx.n_outputs == 0);
+    //     }
+    // }
 
     GGML_ASSERT(
         // (!a || b) is a logical implication (a -> b)
@@ -16400,7 +16400,11 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
             new_type = qs.params->output_tensor_type;
         } else {
             int nx = tensor->ne[0];
-            if (arch == LLM_ARCH_FALCON || nx % QK_K != 0) {
+            // for accurate debug / delete when inference
+            if (ftype == LLAMA_FTYPE_MOSTLY_I2_S || LLAMA_FTYPE_MOSTLY_TQ1_0 || LLAMA_FTYPE_MOSTLY_TQ2_0) {
+                new_type = GGML_TYPE_F32;
+            }
+            else if (arch == LLM_ARCH_FALCON || nx % QK_K != 0) {
                 new_type = GGML_TYPE_Q8_0;
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS ||

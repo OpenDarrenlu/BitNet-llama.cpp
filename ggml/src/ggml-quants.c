@@ -3491,8 +3491,39 @@ void dequantize_row_tq2_0(const block_tq2_0 * restrict x, float * restrict y, in
     }
 }
 
-void quantize_row_i8_s(const float * x, void * y, int64_t n, float* act_scales, int32_t* act_sums) {
+void quantize_row_i8_s(bool debug, const float * x, void * y, int64_t n, float* act_scales, int32_t* act_sums) {
 // void quantize_row_i8_s(const float * x, void * y, int64_t n, float* act_scales) {
+    if (debug) {
+    FILE * pFile;
+	pFile = fopen("check_i8.txt", "w");
+    int8_t* dst = (int8_t*)y;
+    double min = 0.00001;
+    double max = min;
+    for (int i = 0; i < n; ++i) {
+        max = MAX(max, (double)fabs((double)x[i]));
+    }
+    float s = 127 / max;
+    printf("scale:%f\n", s);
+    act_scales[0] = s;
+    float temp;
+    int32_t sum = 0;
+    for (int i = 0; i < n; ++i) {
+        if (i == 750) {
+            printf("%f\n", x[i]);
+            printf("%f\n", x[i] * s);
+            printf("%f\n", round((double)(x[i] * s)));
+        }
+        temp = round((double)(x[i] * s));
+        fprintf(pFile, "%f,", temp);
+        if (temp >  127) temp = 127;
+        if (temp < -128) temp = -128;
+        sum += temp;
+        dst[i] = (int8_t)(temp);
+    }
+    act_sums[0] = sum;
+    fclose(pFile);
+    printf("\n");
+    }else {
     int8_t* dst = (int8_t*)y;
     double min = 0.00001;
     double max = min;
@@ -3510,7 +3541,8 @@ void quantize_row_i8_s(const float * x, void * y, int64_t n, float* act_scales, 
         sum += temp;
         dst[i] = (int8_t)(temp);
     }
-    act_sums[0] = sum;
+    act_sums[0] = sum;  
+    }
 }
 
 #define QK_I2 128
@@ -3544,14 +3576,6 @@ size_t quantize_i2_s(const float * restrict src, void * restrict dst, int64_t nr
     // q8 -> 0, 1, 2
     //       |  |  |
     //      -1, 0, 1
-
-    // uint8_t* i2_weight = (uint8_t*)dst;
-    // for (int i=0; i<n; i++) {
-    //     int group_idx = i / 4;
-    //     int group_pos = i % 4;
-    //     uint8_t temp = (q8[i] << (6 - 2 * group_pos));
-    //     i2_weight[group_idx] |= temp;
-    // }
 
     uint8_t* i2_weight = (uint8_t*)dst;
     for (int i = 0; i < n / QK_I2; i++) {

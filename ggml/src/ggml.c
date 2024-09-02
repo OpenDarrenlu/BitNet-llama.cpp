@@ -12582,6 +12582,49 @@ static void ggml_compute_forward_mul_mat_one_chunk(
     }
 }
 
+void float_act_quant(bool debug, int k, float* B) {
+    if (debug) {
+    FILE * pFile;
+	pFile = fopen("check_float.txt", "w");
+    double min = 0.00001;
+    double max = min;
+    for (int i = 0; i < k; ++i) {
+        max = MAX(max, (double)fabs((double)B[i]));
+    }
+    float s = 127 / max;
+    printf("scale:%f\n", s);
+    float temp;
+    for (int i = 0; i < k; ++i) {
+        if (i == 750) {
+            printf("%f\n", B[i]);
+            printf("%f\n", B[i] * s);
+            printf("%f\n", round((double)(B[i] * s)));
+        }
+        temp = round((double)(B[i] * s));
+        fprintf(pFile, "%f,", temp);
+        if (temp >  127) temp = 127;
+        if (temp < -128) temp = -128;
+        B[i] = temp / s;
+    }
+    fclose(pFile);
+    printf("\n");
+    }else{
+    double min = 0.00001;
+    double max = min;
+    for (int i = 0; i < k; ++i) {
+        max = MAX(max, (double)fabs((double)B[i]));
+    }
+    float s = 127 / max;
+    float temp;
+    for (int i = 0; i < k; ++i) {
+        temp = round((double)(B[i] * s));
+        if (temp >  127) temp = 127;
+        if (temp < -128) temp = -128;
+        B[i] = temp / s;
+    }
+    }
+}
+
 static void ggml_compute_forward_mul_mat(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
@@ -12593,6 +12636,20 @@ static void ggml_compute_forward_mul_mat(
 
     const int ith = params->ith;
     const int nth = params->nth;
+
+    if (src0->type != GGML_TYPE_I2_S && src0->type != GGML_TYPE_TQ1_0 && src0->type != GGML_TYPE_TQ2_0 && src0->ne[1] != 32002) {
+        if (!strcmp(src0->name, "blk.1.attn_q.weight")){
+            float_act_quant(true, src1->ne[0], (float*)src1->data);
+        }else {
+            float_act_quant(false, src1->ne[0], (float*)src1->data);
+        }
+    
+    }
+    // printf("%d\n", src0->ne[0]);
+    // printf("%d\n", src0->ne[1]);
+    // printf("%s\n", src1->name);
+    // printf("%d\n", src1->ne[0]);
+    // printf("%d\n", src1->ne[1]);
 
     const enum ggml_type type = src0->type;
 
@@ -12675,7 +12732,11 @@ UseGgmlGemm1:;
                     if (src0->type == GGML_TYPE_I2_S) {
                         float* act_scales = (float*) ((char *) wdata + (ne11 * ne10));
                         int32_t* act_sums = (int32_t*) ((char *) act_scales + (ne11) * sizeof(float));
-                        quantize_row_i8_s((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) (wdata + ((i11*nbw1 + i12*nbw2 + i13*nbw3) / 4)), ne10, act_scales + i11, act_sums + i11);
+                        if (!strcmp(src0->name, "blk.1.attn_q.weight")){
+                        quantize_row_i8_s(true, (float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) (wdata + ((i11*nbw1 + i12*nbw2 + i13*nbw3) / 4)), ne10, act_scales + i11, act_sums + i11);
+                        }else{
+                        quantize_row_i8_s(false, (float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) (wdata + ((i11*nbw1 + i12*nbw2 + i13*nbw3) / 4)), ne10, act_scales + i11, act_sums + i11);
+                        }
                         // quantize_row_i8_s((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11), (void *) (wdata + ((i11*nbw1 + i12*nbw2 + i13*nbw3) / 4)), ne10, act_scales + i11);
                     } else {
                         from_float((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11),

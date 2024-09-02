@@ -539,7 +539,7 @@ inline int32_t three_gemm_impl(int32_t m, int32_t* c, int8_t* lut, uint8_t* a, u
 
 #pragma unroll
   for (int i = 0; i < BM; i++) {
-    ((float*)C)[i] = (float)(((int32_t*)CBits)[i]);
+    ((float*)C)[i] = (float)(((int32_t*)CBits)[i]) * ((float*)LUT_Scales)[0] * ((float*)Scales)[0];
   }
 
   if (0 != 0) {
@@ -564,7 +564,7 @@ inline int32_t three_gemm_impl(int32_t m, int32_t* c, int8_t* lut, uint8_t* a, u
 
 #pragma unroll
   for (int i = 0; i < BM; i++) {
-    ((float*)C)[i] += (float)(((int32_t*)CBits)[i]);
+    ((float*)C)[i] += (float)(((int32_t*)CBits)[i]) * ((float*)LUT_Scales)[0] * ((float*)Scales)[0];
   }
 
   if (0 != 0) {
@@ -917,6 +917,200 @@ void ggml_vec_dot_tq2_0_q8_K(int n, float * s, const uint8_t * x, float* dx, con
 #endif
 }
 
+void quantize_row_tq1_0_ref(const float * x, uint8_t * qs, uint8_t * qh, float* d_) {
+    const int64_t nb = K / QK_K;
+
+    for (int64_t i = 0; i < nb; i++) {
+        uint8_t* t_qs = qs + i * (QK_K - 4 * QK_K / 64) / 5;
+        uint8_t* t_qh = qh + i * (QK_K / 64);
+        float* t_d_ = d_ + i;
+        float amax = 0.0f; // absolute max
+
+        for (int j = 0; j < QK_K; j++) {
+            const float v = x[j];
+            amax = MAX(amax, fabsf(v));
+        }
+
+        const float d = amax;
+        const float id = d ? 1.0f/d : 0.0f;
+
+        t_d_[0] = d;
+
+        // 5 elements per byte, along 32 bytes
+        for (size_t j = 0; j < (QK_K - 4 * QK_K / 64) / 5 - (QK_K - 4 * QK_K / 64) / 5 % 32; j += 32) {
+            for (size_t m = 0; m < 32; ++m) {
+                uint8_t q = 0;
+                for (size_t n = 0; n < 5; ++n) {
+                    int xi = lroundf(x[m + n*32] * id) + 1; // -1, 0, 1 -> 0, 1, 2
+                    q *= 3;
+                    q += xi;
+                }
+                // ceiling division (243 == pow(3, 5))
+                q = ((uint16_t)q * 256 + (243 - 1)) / 243;
+                t_qs[j + m] = q;
+            }
+            x += 5*32;
+        }
+        // along 16 bytes
+        for (size_t j = (QK_K - 4 * QK_K / 64) / 5 - (QK_K - 4 * QK_K / 64) / 5 % 32; j < (QK_K - 4 * QK_K / 64) / 5; j += 16) {
+            for (size_t m = 0; m < 16; ++m) {
+                uint8_t q = 0;
+                for (size_t n = 0; n < 5; ++n) {
+                    int xi = lroundf(x[m + n*16] * id) + 1; // -1, 0, 1 -> 0, 1, 2
+                    q *= 3;
+                    q += xi;
+                }
+                // ceiling division (243 == pow(3, 5))
+                q = ((uint16_t)q * 256 + (243 - 1)) / 243;
+                t_qs[j + m] = q;
+            }
+            x += 5*16;
+        }
+        // 4 elements per byte
+        for (size_t j = 0; j < QK_K/64; ++j) {
+            uint8_t q = 0;
+            for (size_t m = 0; m < 4; ++m) {
+                // -1, 0, 1 -> 0, 1, 2
+                int xi = lroundf(x[j + m*QK_K/64] * id) + 1;
+                q *= 3;
+                q += xi;
+            }
+            // shift the first value to the most significant trit
+            q *= 3;
+            // ceiling division (243 == pow(3, 5))
+            q = ((uint16_t)q * 256 + (243 - 1)) / 243;
+            t_qh[j] = q;
+        }
+        x += 4*QK_K/64;
+    }
+}
+
+#define MM256_SET_M128I(a, b) _mm256_insertf128_si256(_mm256_castsi128_si256(b), (a), 1)
+
+void ggml_vec_dot_tq1_0_q8_K(int n, float * s, const uint8_t * x, uint8_t * qh, float* dx, const int8_t * y, float* dy, int16_t* bsums) {
+
+    const int nb = n / QK_K;
+
+#if defined(__AVX2__)
+    __m256 sumf = _mm256_setzero_ps();
+
+    for (int i = 0; i < nb; ++i) {
+        const int8_t* t_y = y + i * QK_K;
+        float* t_dy = dy + i;
+        float* t_dx = dx + i;
+        int16_t* t_bsums = bsums + i * QK_K / 16;
+        const uint8_t* t_x = x + i * (QK_K - 4 * QK_K / 64) / 5;
+        uint8_t* t_qh = qh + i * QK_K/64;
+        // 16-bit sums
+        __m256i sumi0 = _mm256_setzero_si256();
+        __m256i sumi1 = _mm256_setzero_si256();
+        __m256i sumi2 = _mm256_setzero_si256();
+
+        // first 32 bytes of 5 elements
+        {
+            __m256i qx0 = _mm256_loadu_si256((const __m256i *) (t_x));
+            // 8-bit multiplies with shifts, masks and adds
+            __m256i qx1 = _mm256_add_epi8(qx0, _mm256_add_epi8(qx0, qx0)); // 1 * 3
+            __m256i qx2 = _mm256_add_epi8(_mm256_and_si256(_mm256_slli_epi16(qx0, 3), _mm256_set1_epi8(-8)), qx0); // 1 * 9
+            __m256i qx3 = _mm256_add_epi8(_mm256_and_si256(_mm256_slli_epi16(qx1, 3), _mm256_set1_epi8(-8)), qx1); // 3 * 9
+            __m256i qx4 = _mm256_add_epi8(_mm256_and_si256(_mm256_slli_epi16(qx2, 3), _mm256_set1_epi8(-8)), qx2); // 9 * 9
+
+            // TODO: can _mm256_mulhi_epu16 be faster even if 16-bits?
+
+            // Cancel the +1 from avg so that it behaves like a halving add
+            qx0 = _mm256_subs_epu8(qx0, _mm256_set1_epi8(1));
+            qx1 = _mm256_subs_epu8(qx1, _mm256_set1_epi8(1));
+            qx2 = _mm256_subs_epu8(qx2, _mm256_set1_epi8(1));
+            qx3 = _mm256_subs_epu8(qx3, _mm256_set1_epi8(1));
+            qx4 = _mm256_subs_epu8(qx4, _mm256_set1_epi8(1));
+            // Multiply by 3 and get the top 2 bits
+            qx0 = _mm256_avg_epu8(qx0, _mm256_avg_epu8(qx0, _mm256_setzero_si256()));
+            qx1 = _mm256_avg_epu8(qx1, _mm256_avg_epu8(qx1, _mm256_setzero_si256()));
+            qx2 = _mm256_avg_epu8(qx2, _mm256_avg_epu8(qx2, _mm256_setzero_si256()));
+            qx3 = _mm256_avg_epu8(qx3, _mm256_avg_epu8(qx3, _mm256_setzero_si256()));
+            qx4 = _mm256_avg_epu8(qx4, _mm256_avg_epu8(qx4, _mm256_setzero_si256()));
+            qx0 = _mm256_and_si256(_mm256_srli_epi16(qx0, 6), _mm256_set1_epi8(3));
+            qx1 = _mm256_and_si256(_mm256_srli_epi16(qx1, 6), _mm256_set1_epi8(3));
+            qx2 = _mm256_and_si256(_mm256_srli_epi16(qx2, 6), _mm256_set1_epi8(3));
+            qx3 = _mm256_and_si256(_mm256_srli_epi16(qx3, 6), _mm256_set1_epi8(3));
+            qx4 = _mm256_and_si256(_mm256_srli_epi16(qx4, 6), _mm256_set1_epi8(3));
+
+            const __m256i qy0 = _mm256_loadu_si256((const __m256i *) (t_y +   0));
+            const __m256i qy1 = _mm256_loadu_si256((const __m256i *) (t_y +  32));
+            const __m256i qy2 = _mm256_loadu_si256((const __m256i *) (t_y +  64));
+            const __m256i qy3 = _mm256_loadu_si256((const __m256i *) (t_y +  96));
+            const __m256i qy4 = _mm256_loadu_si256((const __m256i *) (t_y + 128));
+
+            qx0 = _mm256_maddubs_epi16(qx0, qy0);
+            qx1 = _mm256_maddubs_epi16(qx1, qy1);
+            qx2 = _mm256_maddubs_epi16(qx2, qy2);
+            qx3 = _mm256_maddubs_epi16(qx3, qy3);
+            qx4 = _mm256_maddubs_epi16(qx4, qy4);
+
+            sumi0 = _mm256_add_epi16(sumi0, _mm256_add_epi16(qx0, qx1));
+            sumi1 = _mm256_add_epi16(sumi1, _mm256_add_epi16(qx2, qx3));
+            sumi2 = _mm256_add_epi16(sumi2, qx4);
+        }
+
+        // last 16 bytes of 5-element, along with the 4 bytes of 4 elements
+        {
+            __m128i qx0 = _mm_loadu_si128((const __m128i *) (t_x + 32));
+            uint32_t qh;
+            memcpy(&qh, t_qh, sizeof(qh)); // potentially unaligned
+            __m256i qx5_l = _mm256_cvtepu8_epi16(_mm_set1_epi32(qh));
+            __m128i qx1 = _mm_add_epi8(qx0, _mm_add_epi8(qx0, qx0)); // 1 * 3
+            __m128i qx2 = _mm_add_epi8(_mm_and_si128(_mm_slli_epi16(qx0, 3), _mm_set1_epi8(-8)), qx0); // 1 * 9
+            __m128i qx3 = _mm_add_epi8(_mm_and_si128(_mm_slli_epi16(qx1, 3), _mm_set1_epi8(-8)), qx1); // 3 * 9
+            __m128i qx4 = _mm_add_epi8(_mm_and_si128(_mm_slli_epi16(qx2, 3), _mm_set1_epi8(-8)), qx2); // 9 * 9
+            __m256i qx01 = MM256_SET_M128I(qx1, qx0);
+            __m256i qx23 = MM256_SET_M128I(qx3, qx2);
+
+            // avx2 does not have 8-bit multiplies, so 16-bit it is.
+            qx5_l = _mm256_mullo_epi16(qx5_l, _mm256_set_epi16(27, 27, 27, 27, 9, 9, 9, 9, 3, 3, 3, 3, 1, 1, 1, 1));
+            qx5_l = _mm256_and_si256(qx5_l, _mm256_set1_epi16(0xFF));
+            __m128i qx5 = _mm_packus_epi16(_mm256_castsi256_si128(qx5_l), _mm256_extracti128_si256(qx5_l, 1));
+
+            __m256i qx45 = MM256_SET_M128I(qx5, qx4);
+
+            // Cancel the +1 from avg so that it behaves like a halving add
+            qx01 = _mm256_subs_epu8(qx01, _mm256_set1_epi8(1));
+            qx23 = _mm256_subs_epu8(qx23, _mm256_set1_epi8(1));
+            qx45 = _mm256_subs_epu8(qx45, _mm256_set1_epi8(1));
+            // Multiply by 3 and get the top 2 bits
+            qx01 = _mm256_avg_epu8(qx01, _mm256_avg_epu8(qx01, _mm256_setzero_si256()));
+            qx23 = _mm256_avg_epu8(qx23, _mm256_avg_epu8(qx23, _mm256_setzero_si256()));
+            qx45 = _mm256_avg_epu8(qx45, _mm256_avg_epu8(qx45, _mm256_setzero_si256()));
+            qx01 = _mm256_and_si256(_mm256_srli_epi16(qx01, 6), _mm256_set1_epi8(3));
+            qx23 = _mm256_and_si256(_mm256_srli_epi16(qx23, 6), _mm256_set1_epi8(3));
+            qx45 = _mm256_and_si256(_mm256_srli_epi16(qx45, 6), _mm256_set1_epi8(3));
+
+            const __m256i qy01 = _mm256_loadu_si256((const __m256i *) (t_x + 160));
+            const __m256i qy23 = _mm256_loadu_si256((const __m256i *) (t_x + 192));
+            const __m256i qy45 = _mm256_loadu_si256((const __m256i *) (t_x + 224));
+
+            qx01 = _mm256_maddubs_epi16(qx01, qy01);
+            qx23 = _mm256_maddubs_epi16(qx23, qy23);
+            qx45 = _mm256_maddubs_epi16(qx45, qy45);
+
+            sumi0 = _mm256_add_epi16(sumi0, qx01);
+            sumi1 = _mm256_add_epi16(sumi1, qx23);
+            sumi2 = _mm256_add_epi16(sumi2, qx45);
+        }
+
+        const __m256i ysum = _mm256_loadu_si256((const __m256i *) t_bsums);
+        const __m256 d = _mm256_set1_ps(t_dy[0] * t_dx[0]);
+
+        sumi0 = _mm256_sub_epi16(sumi0, ysum);
+        sumi0 = _mm256_add_epi16(sumi0, _mm256_add_epi16(sumi1, sumi2));
+        sumi0 = _mm256_madd_epi16(sumi0, _mm256_set1_epi16(1));
+
+        sumf = _mm256_add_ps(_mm256_mul_ps(_mm256_cvtepi32_ps(sumi0), d), sumf);
+    }
+
+    *s = hsum_float_8(sumf);
+#endif
+}
+
 void float_compute(float* A, float* B, float* C) {
     for (int i = 0; i < M * 1; i++) {
         C[i] = 0;
@@ -973,6 +1167,30 @@ void tq20_compute(float* A, float* B, float* C) {
 
     for (int i=0; i<M; i++) {
         ggml_vec_dot_tq2_0_q8_K(K, C + i, tq20_qx + i * K / 4, dx + i * K / 256, tq20_qy, dy, bsums);
+    }
+}
+
+void tq10_compute(float* A, float* B, float* C) {
+    for (int i = 0; i < M * 1; i++) {
+        C[i] = 0;
+    }
+    int16_t* bsums = (int16_t*)malloc(sizeof(int16_t) * K / 16);
+    float* dy = (float*)malloc(sizeof(float) * K / 256);
+    int8_t* tq10_qy = (int8_t*)malloc(sizeof(int8_t) * K);
+    float* dx = (float*)malloc(sizeof(float) * M * K / 256);
+    uint8_t* tq10_qx = (uint8_t*)malloc(sizeof(uint8_t) * M * K / 256 * (QK_K - 4 * QK_K / 64) / 5);
+    uint8_t* tq10_qh = (uint8_t*)malloc(sizeof(uint8_t) * M * K / 256 * QK_K/64);
+
+    for (int i=0; i<N; i++) {
+        quantize_row_q8_K_ref(B, tq10_qy, dy, bsums);
+    }
+
+    for (int i=0; i<M; i++) {
+        quantize_row_tq1_0_ref(A + i * K, tq10_qx + i * K / 256 * (QK_K - 4 * QK_K / 64) / 5, tq10_qh + i * K / 64, dx + i * K / 256);
+    }
+
+    for (int i=0; i<M; i++) {
+        ggml_vec_dot_tq1_0_q8_K(K, C + i, tq10_qx + i * K / 256 * (QK_K - 4 * QK_K / 64) / 5, tq10_qh + i * K / 64, dx + i * K / 256, tq10_qy, dy, bsums);
     }
 }
 
@@ -1043,9 +1261,6 @@ void tl_compute(uint8_t* A, float* B, float* C) {
         two_qgemm_lut(two_k, two_A + two_w_offset, two_QLUT, Scales, LUT_Scales, LUT_Biases, C + two_dst_offset);
     }
 
-    for (int i=0; i<M; i++) {
-        C[i] = C[i] * LUT_Scales[0] * Scales[0];
-    }
 }
 
 int main() {
@@ -1084,6 +1299,9 @@ int main() {
     float* tq20_C = (float *)malloc(1 * M * sizeof(float));
     tq20_compute(oA, B, tq20_C);
 
+    // float* tq10_C = (float *)malloc(1 * M * sizeof(float));
+    // tq10_compute(oA, B, tq10_C);
+
     for (int i=0; i<M; i++) {
         // printf("%f ", C[i]);
         // if (fabs(ori_C[i] - lut_C[i]) > 0.5){
@@ -1092,6 +1310,7 @@ int main() {
             printf("tl2:%f\n", lut_C[i]);
             printf("i2_s:%f\n", i2_s_C[i]);
             printf("tq20:%f\n", tq20_C[i]);
+            // printf("tq10:%f\n", tq10_C[i]);
         // }
     }
     printf("\n");
