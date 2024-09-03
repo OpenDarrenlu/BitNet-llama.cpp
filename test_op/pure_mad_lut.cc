@@ -759,33 +759,6 @@ void quantize_i2_s(const float * src, void * dst) {
     // 32B for alignment
 }
 
-void matrixMultiply(const float* A, const float* B, float* C) {
-    for (int i = 0; i < M; ++i) {
-        for (int j = 0; j < N; ++j) {
-            C[j * M + i] = 0.0;
-            for (int k = 0; k < K; ++k) {
-                C[j * M + i] += A[i * K + k] * B[j * K + k];
-            }
-        }
-    }
-}
-
-void float_act_quant(float* B, float* dst) {
-    double min = 0.00001;
-    double max = min;
-    for (int i = 0; i < K; ++i) {
-        max = MAX(max, (double)fabs((double)B[i]));
-    }
-    float s = 127 / max;
-    float temp;
-    for (int i = 0; i < K; ++i) {
-        temp = round((double)(B[i] * s));
-        if (temp >  127) temp = 127;
-        if (temp < -128) temp = -128;
-        dst[i] = temp / s;
-    }
-}
-
 static inline int nearest_int(float fval) {
     float val = fval + 12582912.f;
     int i; memcpy(&i, &val, sizeof(int));
@@ -1111,13 +1084,73 @@ void ggml_vec_dot_tq1_0_q8_K(int n, float * s, const uint8_t * x, uint8_t * qh, 
 #endif
 }
 
-void float_compute(float* A, float* B, float* C) {
+void matrixMultiply(const float* A, const float* B, float* C) {
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            C[j * M + i] = 0.0;
+            for (int k = 0; k < K; ++k) {
+                C[j * M + i] += A[i * K + k] * B[j * K + k];
+            }
+        }
+    }
+}
+
+void float_act_quant(float* B, int32_t* dst, float* act_scale) {
+    double min = 0.00001;
+    double max = min;
+    for (int i = 0; i < K; ++i) {
+        max = MAX(max, (double)fabs((double)B[i]));
+    }
+    float s = 127 / max;
+    act_scale[0] = s;
+    float temp;
+    for (int i = 0; i < K; ++i) {
+        temp = round((double)(B[i] * s));
+        if (temp >  127) temp = 127;
+        if (temp < -128) temp = -128;
+        dst[i] = (int32_t)temp;
+    }
+}
+
+void weight_quant(float* A, int32_t* dst, float i2_scale) {
+    for (int i = 0; i < M * K; ++i) {
+        if (fabs((double)(A[i])) < 1e-6) {
+            dst[i] = 0;
+            continue;
+        } else {
+            dst[i] = (double)A[i] * i2_scale > 0 ? 1 : -1;
+        }
+    }
+}
+
+void matrixMultiply_int(const float* A, const int32_t* B, float* C) {
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            C[j * M + i] = 0.0;
+            for (int k = 0; k < K; ++k) {
+                C[j * M + i] += A[i * K + k] * B[j * K + k];
+            }
+        }
+    }
+}
+
+void float_compute(float* A, float* B, float* C, float i2_scale) {
     for (int i = 0; i < M * 1; i++) {
         C[i] = 0;
     }
-    float* float_B = (float*)malloc(1 * K * sizeof(float));
-    float_act_quant(B, float_B);
-    matrixMultiply(A, float_B, C);
+    int32_t* int_C = (int32_t*)malloc(1 * M * sizeof(int32_t));
+    for (int i = 0; i < M * 1; i++) {
+        int_C[i] = 0;
+    }
+    int32_t* int_B = (int32_t*)malloc(1 * K * sizeof(int32_t));
+    int32_t* int_A = (int32_t*)malloc(M * K * sizeof(int32_t));
+    float* act_scale = (float*)malloc(sizeof(float));
+    float_act_quant(B, int_B, act_scale);
+    // weight_quant(A, int_A, i2_scale);
+    matrixMultiply_int(A, int_B, C);
+    for (int i=0; i < M * 1; i++) {
+        C[i] = C[i] / act_scale[0];
+    }
 }
 
 void i2_s_compute(float* A, float* B, float* C) {
@@ -1288,7 +1321,7 @@ int main() {
     tra_in.close();
 
     float* ori_C = (float *)malloc(1 * M * sizeof(float));
-    float_compute(oA, B, ori_C);
+    float_compute(oA, B, ori_C, 0.22f);
 
     float* lut_C = (float *)malloc(1 * M * sizeof(float));
     tl_compute(A, B, lut_C);
