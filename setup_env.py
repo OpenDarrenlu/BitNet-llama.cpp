@@ -116,7 +116,7 @@ def gen_code():
                 logging.error(f"Pretuned kernels not found for model {args.hf_repo}")
                 sys.exit(1)
             shutil.copyfile(os.path.join(pretuned_kernels, "inline_func_tl2.h"), "include/inline_func.h")
-        run_command([sys.executable, "utils/codegen_tl2.py", "--BMEMD", "160", "--BKEMD", "128", "--bmEMD", "32", "--byEMD", "8", "--BMGQA", "320", "--BKGQA", "64", "--bmGQA", "64", "--byGQA", "4"], log_step="codegen")
+        run_command([sys.executable, "utils/codegen_tl2.py", "--BMEMD", "256", "--BKEMD", "96", "--bmEMD", "32", "--byEMD", "6", "--BMGQA", "128", "--BKGQA", "96", "--bmGQA", "32", "--byGQA", "4"], log_step="codegen")
 
 
 def compile():
