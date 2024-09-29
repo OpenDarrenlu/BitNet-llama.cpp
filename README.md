@@ -6,6 +6,7 @@ Bitnet.cpp is a specialized inference framework designed for Bitnet ternary mode
 ### Requirements
 - conda
 - cmake>=3.22
+- clang(if using Windows, Visual Studio is recommended for clang support)
 
 ### Build from source
 1. Clone the repo
@@ -22,6 +23,7 @@ conda activate bitnet-cpp
 ```bash
 # Download the model from Hugging Face, convert it to quantized gguf format, and build the project
 python setup_env.py --hf-repo 1bitLLM/bitnet_b1_58-large -q tl1
+
 # Or you can manually download the model and run with local path
 huggingface-cli download 1bitLLM/bitnet_b1_58-large --local-dir models/bitnet_b1_58-large 
 python setup_env.py -md models/bitnet_b1_58-large -q tl1
@@ -41,15 +43,16 @@ python setup_env.py -md models/bitnet_b1_58-large -q tl1
 >   --quant-type {i2_s,tl1}, -q {i2_s,tl1}
 >                         Quantization type
 >   --quant-embd          Quantize the embeddings to f16
+>   --use-pretuned, -p    Use the pretuned kernel parameters
 
 ## Usage
 ### Basic usage
 ```bash
-# Run inference with a given prompt
+# Run inference with the quantized model, use -m to specify the model path, -p to specify the prompt
 python run_inference.py -m models/bitnet_b1_58-large/ggml-model-i2_s.gguf -p "Microsoft Corporation is"
 ```
-> Example output:  
-> Microsoft Corporation is an American software company headquartered in Redmond, Washington, United States. The company is a subsidiary of Microsoft Corporation. Microsoft is an American software company that designs and develops computer software and services. The company was founded in 1975 by Bill Gates. Microsoft has its headquarters in Redmond, Washington, United States.
+Example output:  
+>Microsoft Corporation is an American software company headquartered in Redmond, Washington, United States. The company is a subsidiary of Microsoft Corporation. Microsoft is an American software company that designs and develops computer software and services. The company was founded in 1975 by Bill Gates. Microsoft has its headquarters in Redmond, Washington, United States.
 Microsoft Corporation's business is mainly focused on software development and application development. The company is the largest software company in the world and a member of the Microsoft Group. The company was founded by Bill Gates, Paul Allen, and Steve Ballmer.
 
 <h3 align="center">
@@ -66,4 +69,9 @@ We also provide scipts to generate fake bitnet models with different sizes, maki
 
 ```bash
 python utils/generate-fake-bitnet-model.py models/bitnet_b1_58-large --outfile models/fake-bitnet-125m.tl1.gguf --outtype tl1 --model-size 125M
+
+# Run benchmark with the generated model, use -m to specify the model path, -p to specify the prompt processed, -n to specify the number of token to generate
+python utils/e2e_benchmark.py -m models/fake-bitnet-125m.tl1.gguf -p 512 -n 128
 ```
+Example output:
+![alt text](media/benchmark.png)

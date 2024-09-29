@@ -4,6 +4,7 @@ import os
 import platform
 import argparse
 import logging
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger("setup_env")
@@ -24,12 +25,16 @@ SUPPORTED_QUANT_TYPES = {
 
 COMPILER_EXTRA_ARGS = {
     "arm64": ["-DBITNET_ARM_TL1=ON"],
-    "x86_64": ["-DBITNET_X86_TL2=ON"]
+    "x86_64": ["-DBITNET_X86_TL2=ON", "-T", "ClangCL"]
 }
 
 def system_info():
     return platform.system(), platform.machine()
 
+def get_model_name():
+    if args.hf_repo:
+        return SUPPORTED_HF_MODELS[args.hf_repo]["model_name"]
+    return os.path.basename(args.model_dir)
 
 def run_command(command, shell=False, log_step=None):
     """Run a system command and ensure it succeeds."""
@@ -53,7 +58,6 @@ def prepare_model():
     model_dir = args.model_dir
     quant_type = args.quant_type
     quant_embd = args.quant_embd
-    # 如果存在hf_url,则下载到model_dir,否则尝试从model_dir加载
     if hf_url is not None:
         # download the model
         model_dir = os.path.join(model_dir, SUPPORTED_HF_MODELS[hf_url]["model_name"])
@@ -65,7 +69,6 @@ def prepare_model():
         sys.exit(1)
     else:
         logging.info(f"Loading model from directory {model_dir}.")
-    # 如果不存在gguf文件,则转换
     gguf_path = os.path.join(model_dir, "ggml-model-" + quant_type + ".gguf")
     if not os.path.exists(gguf_path) or os.path.getsize(gguf_path) == 0:
         logging.info(f"Converting HF model to GGUF format...")
@@ -93,13 +96,26 @@ def setup_gguf():
         logging.info("GGUF package already installed.")
     else:
         logging.info("Installing gguf package.")
-        run_command([sys.executable, "-m", "pip", "install", "3rdparty/gguf-py"], log_step="install_gguf")
+        run_command([sys.executable, "-m", "pip", "install", "3rdparty/llama.cpp/gguf-py"], log_step="install_gguf")
 
 def gen_code():
     _, arch = system_info()
     if arch == "arm64":
+        if args.use_pretuned:
+            pretuned_kernels = os.path.join("preset_kernels", get_model_name())
+            if not os.path.exists(pretuned_kernels):
+                logging.error(f"Pretuned kernels not found for model {args.hf_repo}")
+                sys.exit(1)
+            shutil.copyfile(os.path.join(pretuned_kernels, "inline_func_tl1.h"), "include/inline_func.h")
         run_command([sys.executable, "utils/codegen_tl1.py", "--BMEMD", "256", "--BKEMD", "256", "--bmEMD", "32", "--byEMD", "8", "--BMGQA", "256", "--BKGQA", "256", "--bmGQA", "32", "--byGQA", "8"], log_step="codegen")
     else:
+        if args.use_pretuned:
+            # cp preset_kernels/model_name/inline_func_tl1.h to include/inline_func.h
+            pretuned_kernels = os.path.join("preset_kernels", get_model_name())
+            if not os.path.exists(pretuned_kernels):
+                logging.error(f"Pretuned kernels not found for model {args.hf_repo}")
+                sys.exit(1)
+            shutil.copyfile(os.path.join(pretuned_kernels, "inline_func_tl2.h"), "include/inline_func.h")
         run_command([sys.executable, "utils/codegen_tl2.py", "--BMEMD", "160", "--BKEMD", "128", "--bmEMD", "32", "--byEMD", "8", "--BMGQA", "320", "--BKGQA", "64", "--bmGQA", "64", "--byGQA", "4"], log_step="codegen")
 
 
@@ -132,6 +148,7 @@ def parse_args():
     parser.add_argument("--log-dir", "-ld", type=str, help="Directory to save the logging info", default="logs")
     parser.add_argument("--quant-type", "-q", type=str, help="Quantization type", choices=SUPPORTED_QUANT_TYPES[arch], default="i2_s")
     parser.add_argument("--quant-embd", action="store_true", help="Quantize the embeddings to f16")
+    parser.add_argument("--use-pretuned", "-p", action="store_true", help="Use the pretuned kernel parameters")
     return parser.parse_args()
 
 if __name__ == "__main__":
