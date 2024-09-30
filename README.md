@@ -1,6 +1,6 @@
-# Bitnet.cpp
+# bitnet.cpp
 ## Introduction
-Bitnet.cpp is a specialized inference framework designed for Bitnet ternary models, optimized for efficient CPU-based inference. Bitnet.cpp provides an end-to-end inference solution by integrating specialized compute kernels with the llama.cpp framework. Bitnet.cpp supports multiple quantization methods and various model sizes, providing low memory usage and low power consumption without compromising on performance or accuracy.
+bitnet.cpp is a specialized inference framework designed for Bitnet ternary models, optimized for efficient CPU-based inference. bitnet.cpp provides an end-to-end inference solution by integrating specialized compute kernels with the [llama.cpp](https://github.com/ggerganov/llama.cpp) framework. bitnet.cpp supports multiple quantization methods and various model sizes, providing low memory usage and low power consumption without compromising on performance or accuracy.
 
 ## Installation
 ### Requirements
@@ -56,7 +56,7 @@ Example output:
 Microsoft Corporation's business is mainly focused on software development and application development. The company is the largest software company in the world and a member of the Microsoft Group. The company was founded by Bill Gates, Paul Allen, and Steve Ballmer.
 
 <h3 align="center">
-    <img src="media/demo.gif">
+    <video src="media/demo.mov">
 </h3>
 
 
@@ -75,3 +75,7 @@ python utils/e2e_benchmark.py -m models/fake-bitnet-125m.tl1.gguf -p 512 -n 128
 ```
 Example output:
 ![alt text](media/benchmark.png)
+
+# Acknowledgements
+
+This project is based on the [llama.cpp](https://github.com/ggerganov/llama.cpp) framework. We would like to thank the authors for their contributions to the open-source community.
