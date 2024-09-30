@@ -56,7 +56,7 @@ Example output:
 Microsoft Corporation's business is mainly focused on software development and application development. The company is the largest software company in the world and a member of the Microsoft Group. The company was founded by Bill Gates, Paul Allen, and Steve Ballmer.
 
 <h3 align="center">
-    <video src="media/demo.mov">
+    <video src="media/demo.mp4">
 </h3>
 
 
