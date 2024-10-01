@@ -2,7 +2,7 @@
 
 #define BMEMD 256
 #define BBKEMD 256
-inline void tbl_impl_EMD(int32_t* c, int8_t* lut, uint8_t* a, tmac_float_type* scale, tmac_float_type* lut_scale) {
+inline void tbl_impl_EMD(int32_t* c, int8_t* lut, uint8_t* a, bitnet_float_type* scale, bitnet_float_type* lut_scale) {
 #ifdef __ARM_NEON
     const int KK = BBKEMD / 2;
     const uint8x16_t vec_mask = vdupq_n_u8(0x0f);
@@ -106,7 +106,7 @@ inline void tbl_impl_EMD(int32_t* c, int8_t* lut, uint8_t* a, tmac_float_type* s
 
 #define BMGQA 256
 #define BBKGQA 256
-inline void tbl_impl_GQA(int32_t* c, int8_t* lut, uint8_t* a, tmac_float_type* scale, tmac_float_type* lut_scale) {
+inline void tbl_impl_GQA(int32_t* c, int8_t* lut, uint8_t* a, bitnet_float_type* scale, bitnet_float_type* lut_scale) {
 #ifdef __ARM_NEON
     const int KK = BBKGQA / 2;
     const uint8x16_t vec_mask = vdupq_n_u8(0x0f);

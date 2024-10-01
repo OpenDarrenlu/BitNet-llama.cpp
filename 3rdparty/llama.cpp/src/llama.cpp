@@ -33,7 +33,7 @@
 #  include "ggml-metal.h"
 #endif
 
-#include "ggml-tmac.h"
+#include "ggml-bitnet.h"
 
 // TODO: replace with ggml API call
 #define QK_K 256
@@ -4913,7 +4913,7 @@ struct llama_model_loader {
 
             size_done += n_size;
 #if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
-            ggml_tmac_transform_tensor(cur);
+            ggml_bitnet_transform_tensor(cur);
 #endif
         }
 

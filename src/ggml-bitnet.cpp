@@ -1,21 +1,18 @@
 #include <vector>
 #include <type_traits>
 
-#include "ggml-tmac.h"
+#include "ggml-bitnet.h"
 #include "ggml-quants.h"
 #include "inline_func.h"
 
-// #include "t-mac/tmac_gemm_wrapper.h"
 
-#define GGML_TMAC_MAX_NODES 8192
+#define GGML_BITNET_MAX_NODES 8192
 
 static bool initialized = false;
 
-// static TMAC::TMACGeMMWrapper<tmac_tmac_float_type> * wrapper = nullptr;
+static bitnet_tensor_extra * bitnet_tensor_extras = nullptr;
 
-static tmac_tensor_extra * tmac_tensor_extras = nullptr;
-
-static size_t tmac_tensor_extras_index = 0;
+static size_t bitnet_tensor_extras_index = 0;
 
 static void * aligned_malloc(size_t size) {
 #if defined(_WIN32)
@@ -38,8 +35,8 @@ static void aligned_free(void * ptr) {
 #if defined(GGML_BITNET_ARM_TL1)
 
 void per_tensor_quant(int k, void* lut_scales_, void* b_) {
-    tmac_float_type* lut_scales = (tmac_float_type*)lut_scales_;
-    tmac_float_type* b = (tmac_float_type*)b_;
+    bitnet_float_type* lut_scales = (bitnet_float_type*)lut_scales_;
+    bitnet_float_type* b = (bitnet_float_type*)b_;
     // 0.5 per-tensor
 #ifdef __ARM_NEON
     float32x4_t temp_max = vdupq_n_f32(0);
@@ -54,7 +51,7 @@ void per_tensor_quant(int k, void* lut_scales_, void* b_) {
 }
 
 void partial_max_reset(void* lut_scales_) {
-    tmac_float_type* lut_scales = (tmac_float_type*)lut_scales_;
+    bitnet_float_type* lut_scales = (bitnet_float_type*)lut_scales_;
     *lut_scales = 0.0;
 }
 
@@ -96,7 +93,7 @@ inline void Transpose_8_8(
 #endif
 
 template<int act_k>
-inline void lut_ctor(int8_t* qlut, tmac_float_type* b, tmac_float_type* lut_scales) {
+inline void lut_ctor(int8_t* qlut, bitnet_float_type* b, bitnet_float_type* lut_scales) {
 #ifdef __ARM_NEON
     int16x8_t vec_lut[16];
     float32_t scales = *lut_scales;
@@ -201,60 +198,60 @@ inline void lut_ctor(int8_t* qlut, tmac_float_type* b, tmac_float_type* lut_scal
 }
 
 void preprocessor_k3200(void* B, void* LUT_Scales, void* QLUT) {
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 3200 / 16 == 200
-  per_tensor_quant(3200, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
+  per_tensor_quant(3200, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
   
-  lut_ctor<3200>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  lut_ctor<3200>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 void preprocessor_k8640(void* B, void* LUT_Scales, void* QLUT) {
 
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 8640 / 16 == 200
-  per_tensor_quant(8640, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
-  lut_ctor<8640>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  per_tensor_quant(8640, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
+  lut_ctor<8640>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 void preprocessor_k8192(void* B, void* LUT_Scales, void* QLUT) {
 
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 8640 / 16 == 200
-  per_tensor_quant(8192, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
+  per_tensor_quant(8192, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
   
-  lut_ctor<8192>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  lut_ctor<8192>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 void preprocessor_k45568(void* B, void* LUT_Scales, void* QLUT) {
 
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 8640 / 16 == 200
-  per_tensor_quant(45568, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
+  per_tensor_quant(45568, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
   
-  lut_ctor<45568>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  lut_ctor<45568>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 void preprocessor_k1536(void* B, void* LUT_Scales, void* QLUT) {
 
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 8640 / 16 == 200
-  per_tensor_quant(1536, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
+  per_tensor_quant(1536, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
   
-  lut_ctor<1536>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  lut_ctor<1536>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 void preprocessor_k4096(void* B, void* LUT_Scales, void* QLUT) {
 
-  partial_max_reset((&(((tmac_float_type*)LUT_Scales)[0])));
+  partial_max_reset((&(((bitnet_float_type*)LUT_Scales)[0])));
   // 8640 / 16 == 200
-  per_tensor_quant(4096, (&(((tmac_float_type*)LUT_Scales)[0])), (&(((tmac_float_type*)B)[0])));
+  per_tensor_quant(4096, (&(((bitnet_float_type*)LUT_Scales)[0])), (&(((bitnet_float_type*)B)[0])));
   
-  lut_ctor<4096>((&(((int8_t*)QLUT)[0])), (&(((tmac_float_type*)B)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+  lut_ctor<4096>((&(((int8_t*)QLUT)[0])), (&(((bitnet_float_type*)B)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
 }
 
 
 void qgemm_lut_k8640(void* A, void* LUT, void* Scales, void* LUT_Scales, void* C) {
-//   alignas(32) tmac_float_type CBits[BMGQA];
+//   alignas(32) bitnet_float_type CBits[BMGQA];
 alignas(32) int32_t CBits[BMGQA];
   memset(&(CBits[0]), 0, BMGQA * sizeof(int32_t));
 #pragma unroll
@@ -263,11 +260,11 @@ alignas(32) int32_t CBits[BMGQA];
   // 1280 = 32 * BM / 2 / 2
   // 256 = 32 / 2 * 16
   for (int32_t k_outer = 0; k_outer < 8640 / BBKGQA; ++k_outer) {
-    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 #pragma unroll
   for (int i = 0; i < BMGQA; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 }
 
@@ -282,12 +279,12 @@ void qgemm_lut_k3200(void* A, void* LUT, void* Scales, void* LUT_Scales, void* C
   // 128 = 32 / 2 * 8
   for (int32_t k_outer = 0; k_outer < 3200 / BBKEMD; ++k_outer) {
     // printf("k_outer:%d\n", k_outer);
-    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 // printf("check2\n");
 #pragma unroll
   for (int i = 0; i < BMEMD; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 // printf("check3\n");
 }
@@ -301,11 +298,11 @@ void qgemm_lut_k45568(void* A, void* LUT, void* Scales, void* LUT_Scales, void* 
   // 1280 = 32 * BM / 2 / 2
   // 256 = 32 / 2 * 16
   for (int32_t k_outer = 0; k_outer < 45568 / BBKGQA; ++k_outer) {
-    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 #pragma unroll
   for (int i = 0; i < BMGQA; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 }
 
@@ -319,12 +316,12 @@ void qgemm_lut_k8192(void* A, void* LUT, void* Scales, void* LUT_Scales, void* C
   // 1280 = 32 * BM / 2 / 2
   // 128 = 32 / 2 * 8
   for (int32_t k_outer = 0; k_outer < 8192 / BBKEMD; ++k_outer) {
-    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 // printf("check2\n");
 #pragma unroll
   for (int i = 0; i < BMEMD; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 // printf("check3\n");
 }
@@ -338,11 +335,11 @@ void qgemm_lut_k4096(void* A, void* LUT, void* Scales, void* LUT_Scales, void* C
   // 1280 = 32 * BM / 2 / 2
   // 256 = 32 / 2 * 16
   for (int32_t k_outer = 0; k_outer < 4096 / BBKGQA; ++k_outer) {
-    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_GQA((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKGQA / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKGQA / 2 / 2 * BMGQA)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 #pragma unroll
   for (int i = 0; i < BMGQA; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 }
 
@@ -356,12 +353,12 @@ void qgemm_lut_k1536(void* A, void* LUT, void* Scales, void* LUT_Scales, void* C
   // 1280 = 32 * BM / 2 / 2
   // 128 = 32 / 2 * 8
   for (int32_t k_outer = 0; k_outer < 1536 / BBKEMD; ++k_outer) {
-    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((tmac_float_type*)Scales)[0])), (&(((tmac_float_type*)LUT_Scales)[0])));
+    tbl_impl_EMD((&(((int32_t*)CBits)[0])), (&(((int8_t*)LUT)[(k_outer * BBKEMD / 2 * 32)])), (&(((uint8_t*)A)[(k_outer * BBKEMD / 2 / 2 * BMEMD)])), (&(((bitnet_float_type*)Scales)[0])), (&(((bitnet_float_type*)LUT_Scales)[0])));
     }
 // printf("check2\n");
 #pragma unroll
   for (int i = 0; i < BMEMD; i++) {
-    ((tmac_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((tmac_float_type*)LUT_Scales)[0] * ((tmac_float_type*)Scales)[0];
+    ((bitnet_float_type*)C)[i] = (((int32_t*)CBits)[i]) / ((bitnet_float_type*)LUT_Scales)[0] * ((bitnet_float_type*)Scales)[0];
   }
 // printf("check3\n");
 }
@@ -408,8 +405,8 @@ void ggml_qgemm_lut(int k, void* A, void* LUT, void* Scales, void* LUT_Scales, v
     }
 }
 
-void ggml_tmac_init(void) {
-    // LOG(INFO) << "ggml_tmac_init";
+void ggml_bitnet_init(void) {
+    // LOG(INFO) << "ggml_bitnet_init";
 
     if (initialized) {
         return;
@@ -417,16 +414,16 @@ void ggml_tmac_init(void) {
     initialized = true;
 
     // if (wrapper == nullptr) {
-    //     wrapper = new TMAC::TMACGeMMWrapper<tmac_tmac_float_type>();
+    //     wrapper = new BITNET::BITNETGeMMWrapper<bitnet_bitnet_float_type>();
     // }
-    if (tmac_tensor_extras == nullptr) {
-        tmac_tensor_extras = new tmac_tensor_extra[GGML_TMAC_MAX_NODES];
+    if (bitnet_tensor_extras == nullptr) {
+        bitnet_tensor_extras = new bitnet_tensor_extra[GGML_BITNET_MAX_NODES];
     }
-    tmac_tensor_extras_index = 0;
+    bitnet_tensor_extras_index = 0;
 }
 
-void ggml_tmac_free(void) {
-    // LOG(INFO) << "ggml_tmac_free";
+void ggml_bitnet_free(void) {
+    // LOG(INFO) << "ggml_bitnet_free";
 
     if (!initialized) {
         return;
@@ -435,12 +432,12 @@ void ggml_tmac_free(void) {
 
     // delete wrapper;
     // wrapper = nullptr;
-    for (size_t i = 0; i < tmac_tensor_extras_index; i++) {
-        // aligned_free(tmac_tensor_extras[i].qweights);
-        // aligned_free(tmac_tensor_extras[i].scales);
+    for (size_t i = 0; i < bitnet_tensor_extras_index; i++) {
+        // aligned_free(bitnet_tensor_extras[i].qweights);
+        // aligned_free(bitnet_tensor_extras[i].scales);
     }
-    delete[] tmac_tensor_extras;
-    tmac_tensor_extras = nullptr;
+    delete[] bitnet_tensor_extras;
+    bitnet_tensor_extras = nullptr;
 }
 
 static bool is_type_supported(enum ggml_type type) {
@@ -477,10 +474,10 @@ static bool do_permutate(enum ggml_type type) {
 //         return simd_qs[simd_idx % SIMD_LEN] >> (simd_idx / SIMD_LEN * BITS);
 //     }
 
-//     static tmac_float_type get_scale(const void * data, int idx) {
+//     static bitnet_float_type get_scale(const void * data, int idx) {
 //         ggml_fp16_t d = ((const block_t *) data)[idx / group_size].d;
-//         if (sizeof(tmac_tmac_float_type) == 2) {
-//             tmac_tmac_float_type * fp16dp = reinterpret_cast<tmac_tmac_float_type *>(&d);
+//         if (sizeof(bitnet_bitnet_float_type) == 2) {
+//             bitnet_bitnet_float_type * fp16dp = reinterpret_cast<bitnet_bitnet_float_type *>(&d);
 //             return *fp16dp;
 //         } else {
 //             return ggml_fp16_to_fp32(((const block_t *) data)[idx / group_size].d);
@@ -498,14 +495,14 @@ static bool do_permutate(enum ggml_type type) {
 //         return qs[idx / n_elem] >> (elem_idx * BITS);
 //     }
 
-//     static tmac_tmac_float_type get_scale(const void * data, int idx, int group_size) {
+//     static bitnet_bitnet_float_type get_scale(const void * data, int idx, int group_size) {
 //         const float * ss = (const float *) data;
 //         float s = ss[idx / group_size];
-//         return (tmac_tmac_float_type) s;
+//         return (bitnet_bitnet_float_type) s;
 //     }
 // };
 
-bool ggml_tmac_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
+bool ggml_bitnet_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
     if ((is_type_supported(src0->type)) &&
         src1->type == GGML_TYPE_F32 &&
         dst->type == GGML_TYPE_F32 &&
@@ -517,16 +514,16 @@ bool ggml_tmac_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_te
     return false;
 }
 
-size_t ggml_tmac_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
+size_t ggml_bitnet_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
     const size_t ne01 = src0->ne[1];
     const size_t ne10 = src1->ne[0];
     const size_t ne11 = src1->ne[1];
-    const int bits = ggml_tmac_get_type_bits(src0->type);
+    const int bits = ggml_bitnet_get_type_bits(src0->type);
     
-    size_t wsize = ne10 * ne11 * 15 * sizeof(int8_t) + 1 * ne11 * 2 * sizeof(tmac_float_type);
-    if (sizeof(tmac_float_type) == 2) {
+    size_t wsize = ne10 * ne11 * 15 * sizeof(int8_t) + 1 * ne11 * 2 * sizeof(bitnet_float_type);
+    if (sizeof(bitnet_float_type) == 2) {
         // Need fp32 to fp16 conversion
-        wsize += std::max(ne10, ne01) * ne11 * sizeof(tmac_float_type);
+        wsize += std::max(ne10, ne01) * ne11 * sizeof(bitnet_float_type);
     }
     wsize = ((wsize - 1) / 64 + 1) * 64;
     return wsize;
@@ -534,16 +531,16 @@ size_t ggml_tmac_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct
 
 // m = batch_size
 // n = output_dim
-// void ggml_tmac_mul_mat_task_init(void * src1, void * qlut, void * lut_scales, void * lut_biases, int n, int k, int m, int bits) {
-//     // t-mac llama.cpp n and m swapped
+// void ggml_bitnet_mul_mat_task_init(void * src1, void * qlut, void * lut_scales, void * lut_biases, int n, int k, int m, int bits) {
+//     // bitnet.cpp llama.cpp n and m swapped
 //     wrapper->llama_cpp_init(src1, qlut, lut_scales, lut_biases, n, k, m, bits);
 // }
 
-// void ggml_tmac_mul_mat_task_compute(void * src0, void * scales, void * qlut, void * lut_scales, void * lut_biases, void * dst, int n, int k, int m, int bits) {
+// void ggml_bitnet_mul_mat_task_compute(void * src0, void * scales, void * qlut, void * lut_scales, void * lut_biases, void * dst, int n, int k, int m, int bits) {
 //     wrapper->llama_cpp_compute(src0, scales, qlut, lut_scales, lut_biases, dst, n, k, m, bits);
 // }
 
-void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
+void ggml_bitnet_transform_tensor(struct ggml_tensor * tensor) {
     if (!(is_type_supported(tensor->type) && tensor->backend == GGML_BACKEND_TYPE_CPU && tensor->extra == nullptr)) {
         return;
     }
@@ -551,7 +548,7 @@ void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
     int k = tensor->ne[0];
     int m = tensor->ne[1];  // `n` in llama.cpp
 
-    const int bits = ggml_tmac_get_type_bits(tensor->type);
+    const int bits = ggml_bitnet_get_type_bits(tensor->type);
     const int lut_scales_size = 1;
     const int scales_size = 1;
     int n_tile_num = 1;
@@ -569,15 +566,15 @@ void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
       n_tile_num = m / BMGQA;
     }
     uint8_t * qweights;
-    tmac_float_type * scales;
+    bitnet_float_type * scales;
 
-    scales = (tmac_float_type *) aligned_malloc(scales_size * sizeof(tmac_float_type));
+    scales = (bitnet_float_type *) aligned_malloc(scales_size * sizeof(bitnet_float_type));
     qweights = (uint8_t *) tensor->data;
     float * i2_scales = (float * )(qweights + k * m / 4);
-    scales[0] = (tmac_float_type) i2_scales[0];
+    scales[0] = (bitnet_float_type) i2_scales[0];
 
-    tensor->extra = tmac_tensor_extras + tmac_tensor_extras_index;
-    tmac_tensor_extras[tmac_tensor_extras_index++] = {
+    tensor->extra = bitnet_tensor_extras + bitnet_tensor_extras_index;
+    bitnet_tensor_extras[bitnet_tensor_extras_index++] = {
         /* .lut_scales_size = */ lut_scales_size,
         /* .scales_size     = */ scales_size,
         /* .n_tile_num      = */ n_tile_num,
@@ -586,7 +583,7 @@ void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
     };
 }
 
-int ggml_tmac_get_type_bits(enum ggml_type type) {
+int ggml_bitnet_get_type_bits(enum ggml_type type) {
     switch (type) {
         case GGML_TYPE_TL1:
             return 2;
@@ -658,8 +655,8 @@ inline void Transpose_8_8(
 #endif
 
 inline int32_t per_tensor_quant(int k, void* lut_scales_, void* b_) {
-    tmac_float_type* lut_scales = (tmac_float_type*)lut_scales_;
-    tmac_float_type* b = (tmac_float_type*)b_;
+    bitnet_float_type* lut_scales = (bitnet_float_type*)lut_scales_;
+    bitnet_float_type* b = (bitnet_float_type*)b_;
 #if defined __AVX2__
     __m256 max_vec = _mm256_set1_ps(0.f);
     const __m256 vec_sign = _mm256_set1_ps(-0.0f);
@@ -680,7 +677,7 @@ inline int32_t per_tensor_quant(int k, void* lut_scales_, void* b_) {
 }
 
 inline int32_t partial_max_reset(int32_t bs, void* lut_scales_) {
-    tmac_float_type* lut_scales = (tmac_float_type*)lut_scales_;
+    bitnet_float_type* lut_scales = (bitnet_float_type*)lut_scales_;
     #pragma unroll
     for (int i=0; i< bs; i++) {
         lut_scales[i] = 0.0;
@@ -689,7 +686,7 @@ inline int32_t partial_max_reset(int32_t bs, void* lut_scales_) {
 }
 
 template<int act_k>
-inline int32_t three_lut_ctor(int8_t* qlut, tmac_float_type* b, tmac_float_type* lut_scales) {
+inline int32_t three_lut_ctor(int8_t* qlut, bitnet_float_type* b, bitnet_float_type* lut_scales) {
 #if defined __AVX2__
     __m256 vec_lut[16];
     const __m256i vec_bi = _mm256_set_epi32(84, 72, 60, 48, 36, 24, 12, 0);
@@ -807,7 +804,7 @@ inline int32_t three_lut_ctor(int8_t* qlut, tmac_float_type* b, tmac_float_type*
 }
 
 template<int act_k>
-inline int32_t two_lut_ctor(int8_t* qlut, tmac_float_type* b, tmac_float_type* lut_scales) {
+inline int32_t two_lut_ctor(int8_t* qlut, bitnet_float_type* b, bitnet_float_type* lut_scales) {
 #if defined __AVX2__
     __m256 vec_lut[16];
     const __m256i vec_bi = _mm256_set_epi32(56, 48, 40, 32, 24, 16, 8, 0);
@@ -1152,8 +1149,8 @@ void ggml_qgemm_lut(int bs, int k, void* A, void* sign, void* LUT, void* Scales,
     }
 }
 
-void ggml_tmac_init(void) {
-    // LOG(INFO) << "ggml_tmac_init";
+void ggml_bitnet_init(void) {
+    // LOG(INFO) << "ggml_bitnet_init";
 
     if (initialized) {
         return;
@@ -1161,16 +1158,16 @@ void ggml_tmac_init(void) {
     initialized = true;
 
     // if (wrapper == nullptr) {
-    //     wrapper = new TMAC::TMACGeMMWrapper<tmac_tmac_float_type>();
+    //     wrapper = new BITNET::BITNETGeMMWrapper<bitnet_bitnet_float_type>();
     // }
-    if (tmac_tensor_extras == nullptr) {
-        tmac_tensor_extras = new tmac_tensor_extra[GGML_TMAC_MAX_NODES];
+    if (bitnet_tensor_extras == nullptr) {
+        bitnet_tensor_extras = new bitnet_tensor_extra[GGML_BITNET_MAX_NODES];
     }
-    tmac_tensor_extras_index = 0;
+    bitnet_tensor_extras_index = 0;
 }
 
-void ggml_tmac_free(void) {
-    // LOG(INFO) << "ggml_tmac_free";
+void ggml_bitnet_free(void) {
+    // LOG(INFO) << "ggml_bitnet_free";
 
     if (!initialized) {
         return;
@@ -1179,12 +1176,12 @@ void ggml_tmac_free(void) {
 
     // delete wrapper;
     // wrapper = nullptr;
-    for (size_t i = 0; i < tmac_tensor_extras_index; i++) {
-        // aligned_free(tmac_tensor_extras[i].qweights);
-        // aligned_free(tmac_tensor_extras[i].scales);
+    for (size_t i = 0; i < bitnet_tensor_extras_index; i++) {
+        // aligned_free(bitnet_tensor_extras[i].qweights);
+        // aligned_free(bitnet_tensor_extras[i].scales);
     }
-    delete[] tmac_tensor_extras;
-    tmac_tensor_extras = nullptr;
+    delete[] bitnet_tensor_extras;
+    bitnet_tensor_extras = nullptr;
 }
 
 static bool is_type_supported(enum ggml_type type) {
@@ -1196,7 +1193,7 @@ static bool is_type_supported(enum ggml_type type) {
     }
 }
 
-bool ggml_tmac_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
+bool ggml_bitnet_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
     if ((is_type_supported(src0->type)) &&
         src1->type == GGML_TYPE_F32 &&
         dst->type == GGML_TYPE_F32 &&
@@ -1206,21 +1203,21 @@ bool ggml_tmac_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_te
     return false;
 }
 
-size_t ggml_tmac_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
+size_t ggml_bitnet_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct ggml_tensor * src1, const struct ggml_tensor * dst) {
     const size_t ne01 = src0->ne[1];
     const size_t ne10 = src1->ne[0];
     const size_t ne11 = src1->ne[1];
     
-    size_t wsize = ne10 * ne11 * 11 * sizeof(int8_t) + 2 * ne11 * 2 * sizeof(tmac_float_type);
-    if (sizeof(tmac_float_type) == 2) {
+    size_t wsize = ne10 * ne11 * 11 * sizeof(int8_t) + 2 * ne11 * 2 * sizeof(bitnet_float_type);
+    if (sizeof(bitnet_float_type) == 2) {
         // Need fp32 to fp16 conversion
-        wsize += std::max(ne10, ne01) * ne11 * sizeof(tmac_float_type);
+        wsize += std::max(ne10, ne01) * ne11 * sizeof(bitnet_float_type);
     }
     wsize = ((wsize - 1) / 64 + 1) * 64;
     return wsize;
 }
 
-void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
+void ggml_bitnet_transform_tensor(struct ggml_tensor * tensor) {
     if (!(is_type_supported(tensor->type) && tensor->backend == GGML_BACKEND_TYPE_CPU && tensor->extra == nullptr)) {
         return;
     }
@@ -1246,15 +1243,15 @@ void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
     }
 
     uint8_t * qweights;
-    tmac_float_type * scales;
+    bitnet_float_type * scales;
 
-    scales = (tmac_float_type *) aligned_malloc(scales_size * sizeof(tmac_float_type));
+    scales = (bitnet_float_type *) aligned_malloc(scales_size * sizeof(bitnet_float_type));
     qweights = (uint8_t *) tensor->data;
     float * i2_scales = (float * )(qweights + k * m / 4);
-    scales[0] = (tmac_float_type) i2_scales[0];
+    scales[0] = (bitnet_float_type) i2_scales[0];
 
-    tensor->extra = tmac_tensor_extras + tmac_tensor_extras_index;
-    tmac_tensor_extras[tmac_tensor_extras_index++] = {
+    tensor->extra = bitnet_tensor_extras + bitnet_tensor_extras_index;
+    bitnet_tensor_extras[bitnet_tensor_extras_index++] = {
         /* .lut_scales_size = */ lut_scales_size,
         /* .scales_size     = */ scales_size,
         /* .n_tile_num      = */ n_tile_num,
@@ -1263,7 +1260,7 @@ void ggml_tmac_transform_tensor(struct ggml_tensor * tensor) {
     };
 }
 
-int ggml_tmac_get_type_bits(enum ggml_type type) {
+int ggml_bitnet_get_type_bits(enum ggml_type type) {
     switch (type) {
         case GGML_TYPE_TL2:
             return 2;

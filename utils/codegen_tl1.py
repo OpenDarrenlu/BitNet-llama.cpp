@@ -42,7 +42,7 @@ def gen_tbl_impl(pre, BM, BK, bm, by):
 \n\
 #define BM{0} {1}\n\
 #define BBK{0} {2}\n\
-inline void tbl_impl_{0}(int32_t* c, int8_t* lut, uint8_t* a, tmac_float_type* scale, tmac_float_type* lut_scale) {{\n\
+inline void tbl_impl_{0}(int32_t* c, int8_t* lut, uint8_t* a, bitnet_float_type* scale, bitnet_float_type* lut_scale) {{\n\
 #ifdef __ARM_NEON\n\
     const int KK = BBK{0} / 2;\n\
     const uint8x16_t vec_mask = vdupq_n_u8(0x0f);\n\
