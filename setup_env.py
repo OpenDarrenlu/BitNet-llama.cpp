@@ -28,8 +28,17 @@ COMPILER_EXTRA_ARGS = {
     "x86_64": ["-DBITNET_X86_TL2=ON", "-T", "ClangCL"]
 }
 
+ARCH_ALIAS = {
+    "AMD64": "x86_64",
+    "x86": "x86_64",
+    "x86_64": "x86_64",
+    "aarch64": "arm64",
+    "arm64": "arm64",
+    "ARM64": "arm64",
+}
+
 def system_info():
-    return platform.system(), platform.machine()
+    return platform.system(), ARCH_ALIAS[platform.machine()]
 
 def get_model_name():
     if args.hf_repo:

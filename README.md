@@ -22,29 +22,31 @@ conda activate bitnet-cpp
 3. Build the project
 ```bash
 # Download the model from Hugging Face, convert it to quantized gguf format, and build the project
-python setup_env.py --hf-repo 1bitLLM/bitnet_b1_58-large -q tl1
+python setup_env.py --hf-repo 1bitLLM/bitnet_b1_58-large -q i2_s
 
 # Or you can manually download the model and run with local path
 huggingface-cli download 1bitLLM/bitnet_b1_58-large --local-dir models/bitnet_b1_58-large 
-python setup_env.py -md models/bitnet_b1_58-large -q tl1
+python setup_env.py -md models/bitnet_b1_58-large -q i2_s
 ```
-> usage: setup_env.py [-h] [--hf-repo {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}] [--model-dir MODEL_DIR] [--log-dir LOG_DIR]
->                     [--quant-type {i2_s,tl1}] [--quant-embd]
-> optional arguments:
->   -h, --help            show this help message and exit
->   --hf-repo {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}, -hr {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}
->                         Model used for inference
->
->   --model-dir MODEL_DIR, -md MODEL_DIR
->                         Directory to save/load the model
->
->   --log-dir LOG_DIR, -ld LOG_DIR
->                         Directory to save the logging info
->   --quant-type {i2_s,tl1}, -q {i2_s,tl1}
->                         Quantization type
->   --quant-embd          Quantize the embeddings to f16
->   --use-pretuned, -p    Use the pretuned kernel parameters
+<pre>
+usage: setup_env.py [-h] [--hf-repo {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}] [--model-dir MODEL_DIR] [--log-dir LOG_DIR] [--quant-type {i2_s,tl1}] [--quant-embd]
+                    [--use-pretuned]
 
+Setup the environment for running the inference
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --hf-repo {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}, -hr {1bitLLM/bitnet_b1_58-large,1bitLLM/bitnet_b1_58-3B}
+                        Model used for inference
+  --model-dir MODEL_DIR, -md MODEL_DIR
+                        Directory to save/load the model
+  --log-dir LOG_DIR, -ld LOG_DIR
+                        Directory to save the logging info
+  --quant-type {i2_s,tl1}, -q {i2_s,tl1}
+                        Quantization type
+  --quant-embd          Quantize the embeddings to f16
+  --use-pretuned, -p    Use the pretuned kernel parameters
+</pre>
 ## Usage
 ### Basic usage
 ```bash
