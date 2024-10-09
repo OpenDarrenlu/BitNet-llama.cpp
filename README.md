@@ -6,9 +6,11 @@ bitnet.cpp is a specialized inference framework designed for Bitnet ternary mode
 ### Requirements
 - conda
 - cmake>=3.22
-- clang(if using Windows, Visual Studio is recommended for clang support)
+- clang(if using Windows, Visual Studio is needed for clang support)
 
 ### Build from source
+> if you are using Windows, please make sure you have installed Visual Studio with clang support, and run the following commands within the Developer PowerShell
+```bash
 1. Clone the repo
 ```bash
 git clone https://github.com/microsoft/BitNet.git
