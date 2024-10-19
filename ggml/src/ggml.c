@@ -3482,7 +3482,7 @@ size_t ggml_nbytes(const struct ggml_tensor * tensor) {
         }
         else if (tensor->type == GGML_TYPE_TL2) {
             nbytes = (tensor->ne[0] - 256) * tensor->ne[1] / 3 * 5 / 8 + 256 * tensor->ne[1] / 2 * 4 / 8;
-            if (nbytes % 32 != 0) nbytes = 32 - nbytes % 32 + nbytes;
+            nbytes = 32 - nbytes % 32 + nbytes;
             nbytes += 32;
         }
     }
