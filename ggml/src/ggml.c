@@ -12617,34 +12617,34 @@ static void ggml_compute_forward_mul_mat(
     GGML_ASSERT(nb1 <= nb2);
     GGML_ASSERT(nb2 <= nb3);
 
-// #ifndef GGML_BITNET_X86_TL2
-//     if (src1->ne[1] <= 1 && src0->type != GGML_TYPE_TL1 && src0->type != GGML_TYPE_I2_S && src0->type != GGML_TYPE_TQ1_0 && src0->type != GGML_TYPE_TQ2_0 && src0->ne[1] != 32002 && src0->ne[1] != 96 && src0->ne[0] != 96) {
-//         int32_t* int_C = (int32_t*)malloc(1 * src0->ne[1] * sizeof(int32_t));
-//         for (int i = 0; i < src0->ne[1] * 1; i++) {
-//             int_C[i] = 0;
-//         }
-//         float* act_scale = (float*)malloc(sizeof(float));
-//         float* i2_scale = (float*)malloc(sizeof(float));
-//         int32_t* int_B = (int32_t*)malloc(1 * src0->ne[0] * sizeof(int32_t));
-//         int32_t* int_A = (int32_t*)malloc(src0->ne[0] * src0->ne[1] * sizeof(int32_t));
-//         float_act_quant(src1->ne[0], (float*)src1->data, int_B, act_scale);
-//         if (src0->type == 0) {
-//             weight_quant_f32(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
-//         } else if (src0->type == 1) {
-//             weight_quant_f16(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
-//         }   
-//         matrixMultiply_int(src0->ne[1], src1->ne[1], src0->ne[0], int_A, int_B, int_C);
-//         for (int i=0; i < src0->ne[1] * 1; i++) {
-//             ((float*)(dst->data))[i] = int_C[i] / act_scale[0] * i2_scale[0];
-//         }
-//         free(int_A);
-//         free(int_B);
-//         free(int_C);
-//         free(act_scale);
-//         free(i2_scale);
-//         return;
-//     }
-// #endif
+#ifdef GGML_BITNET_FLOAT
+    if (src1->ne[1] <= 1 && src0->type != GGML_TYPE_TL1 && src0->type != GGML_TYPE_TL2 && src0->type != GGML_TYPE_I2_S && src0->type != GGML_TYPE_TQ1_0 && src0->type != GGML_TYPE_TQ2_0 && src0->ne[1] != 32002 && src0->ne[1] != 96 && src0->ne[0] != 96) {
+        int32_t* int_C = (int32_t*)malloc(1 * src0->ne[1] * sizeof(int32_t));
+        for (int i = 0; i < src0->ne[1] * 1; i++) {
+            int_C[i] = 0;
+        }
+        float* act_scale = (float*)malloc(sizeof(float));
+        float* i2_scale = (float*)malloc(sizeof(float));
+        int32_t* int_B = (int32_t*)malloc(1 * src0->ne[0] * sizeof(int32_t));
+        int32_t* int_A = (int32_t*)malloc(src0->ne[0] * src0->ne[1] * sizeof(int32_t));
+        float_act_quant(src1->ne[0], (float*)src1->data, int_B, act_scale);
+        if (src0->type == 0) {
+            weight_quant_f32(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
+        } else if (src0->type == 1) {
+            weight_quant_f16(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
+        }
+        matrixMultiply_int(src0->ne[1], src1->ne[1], src0->ne[0], int_A, int_B, int_C);
+        for (int i=0; i < src0->ne[1] * 1; i++) {
+            ((float*)(dst->data))[i] = int_C[i] / act_scale[0] * i2_scale[0];
+        }
+        free(int_A);
+        free(int_B);
+        free(int_C);
+        free(act_scale);
+        free(i2_scale);
+        return;
+    }
+#endif
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
 #if defined(GGML_BITNET_ARM_TL1)
