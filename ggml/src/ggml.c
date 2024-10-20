@@ -12504,6 +12504,8 @@ static void ggml_compute_forward_mul_mat_one_chunk(
     }
 }
 
+#ifdef GGML_BITNET_FLOAT
+
 static inline int nearest_int(float fval) {
     assert(fabsf(fval) <= 4194303.f);
     float val = fval + 12582912.f;
@@ -12579,6 +12581,8 @@ void matrixMultiply_int(const int M, const int N, const int K, const int32_t* A,
     }
 }
 
+#endif
+
 static void ggml_compute_forward_mul_mat(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
@@ -12618,7 +12622,17 @@ static void ggml_compute_forward_mul_mat(
     GGML_ASSERT(nb2 <= nb3);
 
 #ifdef GGML_BITNET_FLOAT
-    if (src1->ne[1] <= 1 && src0->type != GGML_TYPE_TL1 && src0->type != GGML_TYPE_TL2 && src0->type != GGML_TYPE_I2_S && src0->type != GGML_TYPE_TQ1_0 && src0->type != GGML_TYPE_TQ2_0 && src0->ne[1] != 32002 && src0->ne[1] != 96 && src0->ne[0] != 96) {
+    // only suits for bitnet_b1_58-large
+    // ignore compute on ternary irrelevant layer
+    if (src1->ne[1] <= 1 &&
+        src0->type != GGML_TYPE_TL1 &&
+        src0->type != GGML_TYPE_TL2 &&
+        src0->type != GGML_TYPE_I2_S &&
+        src0->type != GGML_TYPE_TQ1_0 &&
+        src0->type != GGML_TYPE_TQ2_0 &&
+        src0->ne[1] != 32002 &&
+        src0->ne[1] != 96 &&
+        src0->ne[0] != 96) {
         int32_t* int_C = (int32_t*)malloc(1 * src0->ne[1] * sizeof(int32_t));
         for (int i = 0; i < src0->ne[1] * 1; i++) {
             int_C[i] = 0;
@@ -12628,9 +12642,9 @@ static void ggml_compute_forward_mul_mat(
         int32_t* int_B = (int32_t*)malloc(1 * src0->ne[0] * sizeof(int32_t));
         int32_t* int_A = (int32_t*)malloc(src0->ne[0] * src0->ne[1] * sizeof(int32_t));
         float_act_quant(src1->ne[0], (float*)src1->data, int_B, act_scale);
-        if (src0->type == 0) {
+        if (src0->type == GGML_TYPE_F32) {
             weight_quant_f32(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
-        } else if (src0->type == 1) {
+        } else if (src0->type == GGML_TYPE_F16) {
             weight_quant_f16(src0->ne[1], src0->ne[0], src0->data, int_A, i2_scale);
         }
         matrixMultiply_int(src0->ne[1], src1->ne[1], src0->ne[0], int_A, int_B, int_C);

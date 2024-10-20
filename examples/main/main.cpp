@@ -542,11 +542,13 @@ int main(int argc, char ** argv) {
         embd_inp.push_back(decoder_start_token_id);
     }
 
-    std::string filename = "generate_result.txt";
+#ifdef GGML_BITNET_FLOAT
+    std::string filename = "results/generate_result.txt";
     std::ofstream outFile;
     outFile.open(filename,std::ios::out|std::ios::app);
     outFile << std::endl;
     outFile.close();
+#endif
 
     while ((n_remain != 0 && !is_antiprompt) || params.interactive) {
         // predict
@@ -722,6 +724,7 @@ int main(int argc, char ** argv) {
             for (auto id : embd) {
                 const std::string token_str = common_token_to_piece(ctx, id, params.special);
 
+#ifdef GGML_BITNET_FLOAT
                 outFile.open(filename,std::ios::out|std::ios::app);
                 if (token_str == "\n") {
                     outFile << "<alterline>" << "<#>";
@@ -729,6 +732,7 @@ int main(int argc, char ** argv) {
                     outFile << token_str << "<#>";
                 }
                 outFile.close();
+#endif
 
                 // Console/Stream Output
                 LOG("%s", token_str.c_str());
