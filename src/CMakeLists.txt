@@ -11,6 +11,9 @@ endif()
 if (GGML_BITNET_X86_TL2)
     add_compile_definitions(GGML_BITNET_X86_TL2)
 endif()
+if (GGML_BITNET_TL2_LOSS)
+    add_compile_definitions(GGML_BITNET_TL2_LOSS)
+endif()
 
 #
 # libraries

@@ -46,7 +46,7 @@
 #ifdef GGML_USE_LLAMAFILE
 #include <llamafile/sgemm.h>
 #endif
-#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
+#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2) || defined(GGML_BITNET_TL2_LOSS)
 #include "ggml-bitnet.h"
 #endif
 
@@ -3875,7 +3875,7 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
 
             GGML_PRINT_DEBUG("%s: g_state initialized in %f ms\n", __func__, (t_end - t_start)/1000.0f);
         }
-#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
+#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2) || defined(GGML_BITNET_TL2_LOSS)
         ggml_bitnet_init();
 #endif
 
@@ -13081,6 +13081,109 @@ static void ggml_compute_forward_mul_mat(
     }
 #endif
 
+#if defined(GGML_BITNET_TL2_LOSS)
+    if (ggml_bitnet_can_mul_mat(src0, src1, dst)) {
+        // src0: weight,     ne00 = k, ne01 = n
+        // src1: activation, ne10 = k, ne11 = m
+        char * wdata = params->wdata;
+
+        struct bitnet_tensor_extra * wt = src0->extra;
+        char * cur_wdata = wdata;
+        bitnet_float_type * bitnet_f_ptr = wdata;
+        if (sizeof(bitnet_float_type) == 2) {
+            cur_wdata = wdata + MAX(ne10, ne01) * ne11 * sizeof(bitnet_float_type);
+        };
+        int8_t * three_qlut = cur_wdata;
+        bitnet_float_type * three_lut_scales;
+        bitnet_float_type * two_lut_scales;
+        int8_t * two_qlut;
+        const int total_k = ne10;
+        const int three_k = (int)(total_k / wt->BK) * wt->BK;
+        const int two_k = total_k - three_k;
+
+        three_lut_scales = (bitnet_float_type *) (three_qlut + three_k / 3 * 16 * ne11);
+        two_qlut = (int8_t *) (three_lut_scales + ne11);
+        two_lut_scales = (bitnet_float_type *) (two_qlut + two_k / 2 * 16 * ne11);
+
+        // g = 4
+        if (ith == 0) {
+            // Transform tensor if not already transformed
+            // Although we have done this in file `llama.cpp`,
+            // we still need to do it here for non-model inference, e.g., test-backend-ops.cpp.
+            // It's better to do this in ggml-backend.c,
+            // but llama.cpp directly manipulates tensor.data for cbe in a lot of space.
+            ggml_bitnet_transform_tensor(src0);
+            GGML_ASSERT(src1->type == GGML_TYPE_F32);
+            bitnet_float_type * act_input;
+            if (sizeof(bitnet_float_type) == 2) {
+                ggml_fp32_to_fp16_row(src1->data, bitnet_f_ptr, ne10 * ne11);
+                act_input = bitnet_f_ptr;
+            } else {
+                act_input = src1->data;
+            }
+            ggml_preprocessor(ne11, ne01, three_k, two_k, act_input, three_lut_scales, two_lut_scales, three_qlut, two_qlut);
+        }
+
+        ggml_barrier(params->threadpool);
+
+        bitnet_float_type * act_output;
+        if (sizeof(bitnet_float_type) == 2) {
+            act_output = bitnet_f_ptr;
+        } else {
+            act_output = dst->data;
+        }
+
+        const int n_tile_num = wt->n_tile_num;
+        GGML_ASSERT(ne0 % n_tile_num == 0);
+        const int w_size           = three_k * ne01 / (2 * 3);
+        const int w_tile_size      = w_size / n_tile_num;
+        const int c_size           = ne01;
+        const int c_tile_size      = c_size / n_tile_num;
+        const int sign_size        = three_k * ne01 / 24;
+        const int sign_tile_size   = sign_size / n_tile_num;
+
+        const int th_tile_num = (n_tile_num + nth - 1) / nth;
+        const int th_tile_beg = ith * th_tile_num;
+        const int th_tile_end = MIN((ith + 1) * th_tile_num, n_tile_num);
+
+        uint8_t* sign = ((uint8_t *)(wt->qweights)) + three_k * ne01 / 3 / 2;
+
+        for (int i_tile = th_tile_beg; i_tile < th_tile_end; i_tile++) {
+            const int w_offset          = i_tile * w_tile_size;
+            const int sign_offset       = i_tile * sign_tile_size;
+            const int dst_offset        = i_tile * c_tile_size;
+
+            ggml_qgemm_lut( 1, ne01, ne00, three_k, ((uint8_t *)(wt->qweights) + w_offset),
+                            sign + sign_offset,
+                            three_qlut,
+                            wt->scales,
+                            three_lut_scales,
+                            act_output + dst_offset);
+        }
+
+        const int two_w_size           = ne01 * two_k / (2 * 2); // int8
+        const int two_w_tile_size      = two_w_size / n_tile_num;
+        uint8_t* two_A = ((uint8_t *)(wt->qweights)) + three_k * ne01 / 3 / 2 + three_k * ne01 / 3 / 8;
+        // auto gemm_start = std::chrono::high_resolution_clock::now();
+        for (int i_tile = th_tile_beg; i_tile < th_tile_end; i_tile++) {
+            const int two_w_offset          = i_tile * two_w_tile_size;
+            const int two_dst_offset        = i_tile * c_tile_size;
+
+            ggml_qgemm_lut( 1, ne01, ne00, two_k, two_A + two_w_offset,
+                            NULL,
+                            two_qlut,
+                            wt->scales,
+                            two_lut_scales,
+                            act_output + two_dst_offset);
+        }
+
+
+
+
+        return;
+    }
+#endif
+
 #if GGML_USE_LLAMAFILE
     // broadcast factors
     const int64_t r2 = ne12 / ne02;
@@ -20349,7 +20452,7 @@ struct ggml_cplan ggml_graph_plan(
                 {
                     const enum ggml_type vec_dot_type = type_traits[node->src[0]->type].vec_dot_type;
 
-#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
+#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2) || defined(GGML_BITNET_TL2_LOSS)
                     if (ggml_bitnet_can_mul_mat(node->src[0], node->src[1], node)) {
                         cur = ggml_bitnet_mul_mat_get_wsize(node->src[0], node->src[1], node);
                     } else

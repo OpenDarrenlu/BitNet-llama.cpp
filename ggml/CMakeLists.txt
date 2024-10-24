@@ -170,6 +170,7 @@ option(GGML_BUILD_EXAMPLES "ggml: build examples" ${GGML_STANDALONE})
 # bitnet methods
 option(GGML_BITNET_ARM_TL1                  "ggml: use Bitnet tl1(arm)"                       OFF)
 option(GGML_BITNET_X86_TL2                  "ggml: use Bitnet tl2(x86)"                       OFF)
+option(GGML_BITNET_TL2_LOSS                  "ggml: use Bitnet tl2(x86)"                       OFF)
 
 
 #
@@ -181,6 +182,9 @@ if (GGML_BITNET_ARM_TL1)
 endif()
 if (GGML_BITNET_X86_TL2)
     add_compile_definitions(GGML_BITNET_X86_TL2)
+endif()
+if (GGML_BITNET_TL2_LOSS)
+    add_compile_definitions(GGML_BITNET_TL2_LOSS)
 endif()
 
 set(CMAKE_C_STANDARD 11)

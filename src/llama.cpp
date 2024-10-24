@@ -5203,7 +5203,7 @@ struct llama_model_loader {
             }
 
             size_done += n_size;
-#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
+#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2) || defined(GGML_BITNET_TL2_LOSS)
             ggml_bitnet_transform_tensor(cur);
 #endif
         }
@@ -8627,7 +8627,7 @@ static bool llm_load_tensors(
                         layer.ffn_gate       = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd, n_ff});
                         layer.ffn_down       = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd});
                         layer.ffn_up         = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff});
-#if !defined(GGML_BITNET_ARM_TL1) && !defined(GGML_BITNET_X86_TL2)
+#if !defined(GGML_BITNET_ARM_TL1) && !defined(GGML_BITNET_X86_TL2) && !defined(GGML_BITNET_TL2_LOSS)
                         layer.wq_scale = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q,   "scale",  i), {1}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.wk_scale = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K,   "scale",  i), {1}, llama_model_loader::TENSOR_NOT_REQUIRED);
                         layer.wv_scale = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_V,   "scale",  i), {1}, llama_model_loader::TENSOR_NOT_REQUIRED);
