@@ -3482,7 +3482,7 @@ size_t ggml_nbytes(const struct ggml_tensor * tensor) {
         }
         else if (tensor->type == GGML_TYPE_TL2) {
             nbytes = (tensor->ne[0] - 256) * tensor->ne[1] / 3 * 5 / 8 + 256 * tensor->ne[1] / 2 * 4 / 8;
-            if (nbytes % 32 != 0) nbytes = 32 - nbytes % 32 + nbytes;
+            nbytes = 32 - nbytes % 32 + nbytes;
             nbytes += 32;
         }
     }
@@ -13175,11 +13175,10 @@ static void ggml_compute_forward_mul_mat(
                             wt->scales,
                             two_lut_scales,
                             act_output + two_dst_offset);
+            if (sizeof(bitnet_float_type) == 2) {
+                ggml_fp16_to_fp32_row(act_output + two_dst_offset, (float *) dst->data + two_dst_offset, ne01 / n_tile_num);
+            }
         }
-
-
-
-
         return;
     }
 #endif
