@@ -104,6 +104,7 @@ extern "C" {
         LLAMA_VOCAB_PRE_TYPE_EXAONE         = 25,
         LLAMA_VOCAB_PRE_TYPE_CHAMELEON      = 26,
         LLAMA_VOCAB_PRE_TYPE_FALCON_3      = 27,
+        LLAMA_VOCAB_PRE_TYPE_FALCON_E      = 28,
     };
 
     enum llama_rope_type {
