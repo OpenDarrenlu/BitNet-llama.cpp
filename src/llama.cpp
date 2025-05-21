@@ -6425,6 +6425,9 @@ static void llm_load_vocab(
                     tokenizer_pre == "falcon3") {
                 vocab.type_pre = LLAMA_VOCAB_PRE_TYPE_FALCON_3;
             } else if (
+                    tokenizer_pre == "falcon_e") {
+                vocab.type_pre = LLAMA_VOCAB_PRE_TYPE_FALCON_E;
+            } else if (
                     tokenizer_pre == "mpt") {
                 vocab.type_pre = LLAMA_VOCAB_PRE_TYPE_MPT;
             } else if (
@@ -21936,6 +21939,15 @@ static int32_t llama_chat_apply_template_internal(
         }
         if (add_ass) {
             ss << "<|assistant|>\n";
+        }
+    } else if (tmpl == "falcon_e" && (tmpl_contains("assistant") && tmpl_contains("user"))) {
+        // Falcon Edge
+        for (auto message : chat) {
+            std::string role(message->role);
+            ss << role << message->content << "\n";
+        }
+        if (add_ass) {
+            ss << "assistant\n";
         }
     } else if (tmpl == "zephyr" || tmpl_contains("<|user|>")) {
         // zephyr template
