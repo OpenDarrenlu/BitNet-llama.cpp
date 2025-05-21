@@ -21940,7 +21940,7 @@ static int32_t llama_chat_apply_template_internal(
         if (add_ass) {
             ss << "<|assistant|>\n";
         }
-    } else if (tmpl == "falcon_e" || (tmpl_contains("assistant") && tmpl_contains("user"))) {
+    } else if (tmpl == "falcon_e" && (tmpl_contains("assistant") && tmpl_contains("user"))) {
         // Falcon Edge
         for (auto message : chat) {
             std::string role(message->role);
