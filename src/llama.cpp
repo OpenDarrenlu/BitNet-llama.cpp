@@ -5263,9 +5263,6 @@ struct llama_model_loader {
             }
 
             size_done += n_size;
-#if defined(GGML_BITNET_ARM_TL1) || defined(GGML_BITNET_X86_TL2)
-            ggml_bitnet_transform_tensor(cur);
-#endif
         }
 
         // free temporary resources used for async uploads
