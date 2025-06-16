@@ -2,6 +2,7 @@
 #include <random>
 #include <cmath>
 #include <cstring>
+#include <chrono>
 
 // 假设128 = QK_I2_S（即x中每128个2-bit整数压缩成32字节）
 #define QK_I2_S 128
@@ -178,11 +179,19 @@ int main() {
 
     float result_cpu = 0.0f, result_avx = 0.0f;
 
-    // CPU version (no SIMD)
+    // 计时：CPU参考版本
+    auto start_cpu = std::chrono::high_resolution_clock::now();
     ggml_vec_dot_i2_i8_s_cpu(N, &result_cpu, 0, x.data(), 0, y.data(), 0, 0);
+    auto end_cpu = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> cpu_time = end_cpu - start_cpu;
+    std::cout << "CPU version time: " << cpu_time.count() << " ms\n";
 
-    // AVX version
+    // 计时：AVX优化版本
+    auto start_avx = std::chrono::high_resolution_clock::now();
     ggml_vec_dot_i2_i8_s(N, &result_avx, 0, x.data(), 0, y.data(), 0, 0);
+    auto end_avx = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> avx_time = end_avx - start_avx;
+    std::cout << "AVX version time: " << avx_time.count() << " ms\n";
 
     // Compare
     std::cout << "CPU Result (fallback) : " << result_cpu << std::endl;
